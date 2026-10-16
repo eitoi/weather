@@ -1,6 +1,6 @@
 /* Service worker: app shell cache-first, forecast data network-first with offline fallback. */
-const SHELL = 'wx-shell-v7', DATA = 'wx-data-v1', TILES = 'wx-tiles-v1';
-const SHELL_FILES = ['./', 'index.html', 'style.css?v=7', 'js/util.js?v=7', 'js/charts.js?v=7', 'js/point.js?v=7', 'js/outlook.js?v=7', 'js/launches.js?v=7', 'launches.json', 'js/app.js?v=7',
+const SHELL = 'wx-shell-v9', DATA = 'wx-data-v1', TILES = 'wx-tiles-v1';
+const SHELL_FILES = ['./', 'index.html', 'style.css?v=9', 'js/util.js?v=9', 'js/charts.js?v=9', 'js/point.js?v=9', 'js/outlook.js?v=9', 'js/launches.js?v=9', 'launches.json', 'js/app.js?v=9',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

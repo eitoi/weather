@@ -119,7 +119,10 @@
     const sel = el('line', { y1: m.t, y2: H - m.b, stroke: css('--accent'), 'stroke-width': 1.5 }, svg);
     const cross = el('line', { y1: m.t, y2: H - m.b, stroke: css('--text-secondary'), 'stroke-width': 1, 'stroke-dasharray': '3 3', visibility: 'hidden' }, svg);
     const tip = document.createElement('div'); tip.className = 'tooltip hidden'; wrap.appendChild(tip);
-    const setSel = t => { sel.setAttribute('x1', x(t)); sel.setAttribute('x2', x(t)); };
+    const setSel = t => {
+      sel.setAttribute('visibility', t >= 0 && t < T ? 'visible' : 'hidden');
+      sel.setAttribute('x1', x(t)); sel.setAttribute('x2', x(t));
+    };
     setSel(WX.t);
     const onHover = t => {
       if (t === null) { cross.setAttribute('visibility', 'hidden'); tip.classList.add('hidden'); return; }
