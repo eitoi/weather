@@ -167,6 +167,7 @@
     sat: () => L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 15, attribution: 'Esri' }),
     otm: () => L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', { maxZoom: 15, maxNativeZoom: 15, attribution: '© OpenTopoMap (CC-BY-SA), © OpenStreetMap' }),
   };
+  WX.BASES = BASES;
   let base = null;
   function setBase() { if (base) map.removeLayer(base); base = BASES[WX.prefs.base]().addTo(map); }
   setBase();
@@ -581,8 +582,10 @@
     document.querySelectorAll('#mainTabs button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
     document.getElementById('mapView').classList.toggle('active', v === 'map');
     document.getElementById('outlookView').classList.toggle('active', v === 'outlook');
+    document.getElementById('avyView').classList.toggle('active', v === 'avy');
     if (v === 'map') setTimeout(() => map.invalidateSize(), 0);
     if (v === 'outlook') WX.emit('showOutlook');
+    if (v === 'avy') WX.emit('showAvy');
     saveHash();
   }
   document.querySelectorAll('#mainTabs button').forEach(b => (b.onclick = () => setView(b.dataset.view)));
@@ -604,7 +607,7 @@
     WX.prefs.ghRepo = document.getElementById('setRepo').value.trim();
     const changed = u !== WX.prefs.units || w !== WX.prefs.wind || top !== WX.prefs.top;
     WX.prefs.units = u; WX.prefs.wind = w; WX.prefs.top = top;
-    if (b !== WX.prefs.base) { WX.prefs.base = b; setBase(); }
+    if (b !== WX.prefs.base) { WX.prefs.base = b; setBase(); WX.emit('base'); }
     WX.setPref('units', u);
     if (changed) { fillLevels(); refresh(); WX.emit('units'); }
   });
@@ -686,6 +689,7 @@
     } catch (e) {
       document.getElementById('runInfo').textContent = 'No forecast data yet: run the ingest (see README)';
       console.error(e);
+      if (new URLSearchParams(location.hash.slice(1)).get('v') === 'avy') setView('avy');
       return;
     }
     buildCorners();
@@ -704,7 +708,7 @@
     setInterval(checkForUpdate, 5 * 60e3);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
     if (p.get('p')) { const [la, lo, ...nm] = p.get('p').split(','); WX.selectPoint(+la, +lo, nm.join(',') || null); }
-    if (p.get('v') === 'outlook') setView('outlook');
+    if (p.get('v') === 'outlook' || p.get('v') === 'avy') setView(p.get('v'));
     WX.emit('ready');
   }
   boot();

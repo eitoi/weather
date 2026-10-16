@@ -196,3 +196,41 @@ dialog#settings input[type=text], dialog#settings input[type=password] { padding
 @media (max-width: 760px) { .mode-seg button { padding: 4px 6px; } #timeBar { flex-wrap: wrap; } }
 table.data tr.q15 td { background: color-mix(in srgb, var(--s4) 9%, var(--surface-1)); }
 table.data tr.q15.sel td, table.data tr.sel td { background: color-mix(in srgb, var(--accent) 16%, var(--surface-1)); }
+/* avalanche */
+#avyMap { position: absolute; inset: 0; background: var(--surface-2); }
+#avyBar { top: 10px; left: 10px; padding: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; max-width: calc(100% - 20px); }
+#avyBar .seg button { font-size: 12px; }
+#avyLegend { left: 10px; bottom: calc(10px + var(--safe-bottom)); padding: 8px 10px; font-size: 11px; color: var(--text-secondary); }
+#avyLegend .lg-title { font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 12px; }
+.avy-lg { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
+.avy-lg i { width: 14px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid #0003; }
+.avy-lg i.dash { border: 1.5px dashed var(--text-secondary); background: transparent; }
+.avy-lg i.dot { width: 10px; height: 10px; border-radius: 50%; background: #6da7ec; border-color: #123; }
+#avyHover { left: 10px; top: 92px; padding: 6px 10px; font-size: 12px; pointer-events: none; max-width: 340px; }
+#avyPanel { bottom: calc(10px + var(--safe-bottom)); width: min(460px, 42vw); }
+#avyPanel h4 { margin: 14px 0 6px; font-size: 13px; }
+.avy-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 650; white-space: nowrap; border: 1px solid #0002; }
+.avy-pill.none { background: var(--surface-2); color: var(--text-muted); font-weight: 500; }
+.avy-bands { display: grid; gap: 6px; }
+.avy-band { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.avy-why { margin: 0; padding-left: 18px; }
+.avy-back { padding: 0 10px; font-size: 13px; }
+.avy-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.avy-chips button { border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary); border-radius: 999px; padding: 2px 9px; font-size: 12px; cursor: pointer; }
+.avy-chips button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+#avyQ { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); margin-bottom: 6px; }
+.avy-list button { display: flex; width: 100%; align-items: center; gap: 8px; text-align: left; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--text-primary); padding: 7px 2px; cursor: pointer; font: inherit; font-size: 13px; }
+.avy-list button:hover { background: var(--surface-2); }
+.avy-list i { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 1px solid #0003; }
+.avy-list .nm { flex: 1; min-width: 0; }
+.avy-off { color: var(--accent); font-weight: 600; }
+@media (max-width: 760px) {
+  #avyBar { left: 8px; right: 8px; top: 8px; max-width: none; padding: 6px; }
+  #avyBar .seg { width: 100%; } #avyBar .seg button { flex: 1; padding: 4px 4px; }
+  #avyLegend { display: none; }
+  #avyHover { display: none; }
+  #avyPanel { width: auto; height: 44%; bottom: 0; }
+  #avyPanel.full { height: calc(100% - 4px); }
+  #avyView .leaflet-control-zoom { display: none; }
+}
+#avyMap .leaflet-image-layer { image-rendering: pixelated; }

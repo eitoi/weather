@@ -1,7 +1,7 @@
 {
   "name": "Wasatch Wx",
   "short_name": "Wasatch Wx",
-  "description": "HRRR mountain forecast for the Wasatch, Mount Wire to Mount Nebo",
+  "description": "HRRR mountain forecast for the Wasatch, plus a western avalanche danger map",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
