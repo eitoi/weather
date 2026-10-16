@@ -414,7 +414,10 @@
   function dayTicks() {
     const el = document.getElementById('dayTicks'); el.innerHTML = '';
     const T = WX.times.length;
+    const firstMidnight = WX.times.findIndex(d => WX.time.localHour(d) === 0);
     WX.times.forEach((d, t) => {
+      // skip the start label when the first midnight is too close to it to fit both
+      if (t === 0 && firstMidnight > 0 && firstMidnight / (T - 1) < 0.12) return;
       if (t === 0 || WX.time.localHour(d) === 0) {
         const s = document.createElement('span');
         s.style.left = (t / (T - 1) * 100) + '%'; s.textContent = WX.time.day(d);
