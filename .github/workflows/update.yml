@@ -6,6 +6,9 @@ on:
   schedule:
     - cron: "55 * * * *"      # HRRR runs are complete ~55 min after the hour
   workflow_dispatch:
+  push:                       # deploy app changes as soon as they're pushed
+    branches: [main]
+    paths-ignore: ["README.md", "tools/**"]
 
 permissions:
   contents: read

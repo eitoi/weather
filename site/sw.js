@@ -1,6 +1,6 @@
 /* Service worker: app shell cache-first, forecast data network-first with offline fallback. */
-const SHELL = 'wx-shell-v6', DATA = 'wx-data-v1', TILES = 'wx-tiles-v1';
-const SHELL_FILES = ['./', 'index.html', 'style.css?v=6', 'js/util.js?v=6', 'js/charts.js?v=6', 'js/point.js?v=6', 'js/outlook.js?v=6', 'js/launches.js?v=6', 'launches.json', 'js/app.js?v=6',
+const SHELL = 'wx-shell-v7', DATA = 'wx-data-v1', TILES = 'wx-tiles-v1';
+const SHELL_FILES = ['./', 'index.html', 'style.css?v=7', 'js/util.js?v=7', 'js/charts.js?v=7', 'js/point.js?v=7', 'js/outlook.js?v=7', 'js/launches.js?v=7', 'launches.json', 'js/app.js?v=7',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
@@ -23,8 +23,16 @@ self.addEventListener('fetch', e => {
     }).catch(() => caches.open(DATA).then(c => c.match(key)).then(r => r || Response.error())));
     return;
   }
+  if (url.origin === location.origin && (e.request.mode === 'navigate' || url.pathname.endsWith('/index.html'))) {
+    // the page itself: always try the network first (bypassing the HTTP cache) so new versions show at once
+    e.respondWith(fetch(e.request, { cache: 'no-cache' }).then(r => {
+      if (r.ok) { const copy = r.clone(); caches.open(SHELL).then(c => c.put('index.html', copy)); }
+      return r;
+    }).catch(() => caches.open(SHELL).then(c => c.match('index.html')).then(r => r || caches.match('./'))));
+    return;
+  }
   if (url.origin === location.origin) {
-    // app shell: stale-while-revalidate
+    // versioned app files (?v=N) and icons: cache first, refreshed in the background
     e.respondWith(caches.open(SHELL).then(async c => {
       const hit = await c.match(e.request);
       const net = fetch(e.request).then(r => { if (r.ok) c.put(e.request, r.clone()); return r; }).catch(() => hit);
