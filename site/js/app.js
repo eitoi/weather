@@ -217,7 +217,7 @@
       pc[q * 2] = p.x; pc[q * 2 + 1] = p.y;
     }
     const cellPx = Math.abs(pc[2] - pc[0]);
-    ctx.globalAlpha = layer.id === 'terrain' ? 0.55 : 0.62;
+    ctx.globalAlpha = layerOpacity(layer.id);
     for (let j = 0; j < ny; j++) for (let i = 0; i < nx; i++) {
       const k = j * nx + i, v = layer.value(g, k, lv);
       const col = layer.colorFn ? layer.colorFn(lv, g, k, v, sc) : sc.color(v);
@@ -383,12 +383,21 @@
     levelSel.value = WX.level;
     levelSel.disabled = lvls.length < 2;
   }
-  layerSel.onchange = () => { WX.layer = layerSel.value; fillLevels(); saveHash(); refresh(); };
+  layerSel.onchange = () => { WX.layer = layerSel.value; fillLevels(); syncOpacity(); saveHash(); refresh(); };
   levelSel.onchange = () => { WX.level = levelSel.value; saveHash(); refresh(); };
   const optN = document.getElementById('optNumbers'), optA = document.getElementById('optArrows');
   optN.checked = WX.prefs.numbers; optA.checked = WX.prefs.arrows;
   optN.onchange = () => { WX.setPref('numbers', optN.checked); overlay.redraw(); };
   optA.onchange = () => { WX.setPref('arrows', optA.checked); overlay.redraw(); };
+  // per-layer overlay opacity (remembered for each layer)
+  const optO = document.getElementById('optOpacity');
+  function layerOpacity(id) { const v = (WX.prefs.opacity || {})[id]; return (v !== undefined ? v : id === 'terrain' ? 55 : 62) / 100; }
+  WX.layerOpacity = layerOpacity;
+  function syncOpacity() { optO.value = Math.round(layerOpacity(WX.layer) * 100); }
+  optO.oninput = () => {
+    WX.prefs.opacity = Object.assign({}, WX.prefs.opacity, { [WX.layer]: +optO.value });
+    WX.setPref('opacity', WX.prefs.opacity); overlay.redraw();
+  };
 
   /* time slider */
   const slider = document.getElementById('timeSlider'), tlabel = document.getElementById('timeLabel');
@@ -528,7 +537,7 @@
     overlay.addTo(map);
     addPlaces();
     const p = readHash();
-    fillLayers();
+    fillLayers(); syncOpacity();
     slider.max = WX.times.length - 1;
     // start at the hour closest to now
     const now = Date.now();
