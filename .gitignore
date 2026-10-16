@@ -1,0 +1,8 @@
+.venv/
+cache/
+site/data/
+site/data.tmp/
+site/data.old/
+*.log
+.env
+__pycache__/

@@ -1,0 +1,48 @@
+# Rebuilds the forecast every hour and publishes the app to GitHub Pages.
+# Setup: Settings -> Pages -> Source: "GitHub Actions". Optional secret ANTHROPIC_API_KEY for the written outlook.
+name: Update forecast
+
+on:
+  schedule:
+    - cron: "55 * * * *"      # HRRR runs are complete ~55 min after the hour
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: forecast
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Restore download cache
+        uses: actions/cache@v4
+        with:
+          path: cache
+          key: hrrr-cache-${{ github.run_id }}
+          restore-keys: hrrr-cache-
+      - name: Build forecast data
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python -m ingest.run --workers 32
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deploy
+        uses: actions/deploy-pages@v4

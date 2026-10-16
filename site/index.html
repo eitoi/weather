@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wasatch Wx</title>
+<meta name="description" content="HRRR-based mountain forecast for the Wasatch, Mount Wire to Mount Nebo">
+<meta name="theme-color" content="#1a1a19">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Wasatch Wx">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+<div id="app">
+  <header id="topbar">
+    <div class="brand">Wasatch&nbsp;Wx</div>
+    <nav class="tabs" id="mainTabs">
+      <button data-view="map" class="active">Map</button>
+      <button data-view="outlook">Outlook</button>
+    </nav>
+    <div class="runinfo" id="runInfo">Loading…</div>
+    <button id="settingsBtn" class="icon-btn" aria-label="Settings">⚙︎</button>
+  </header>
+
+  <main id="mapView" class="view active">
+    <div id="map"></div>
+
+    <div id="layerBar" class="panel">
+      <label class="sr" for="layerSel">Layer</label>
+      <select id="layerSel"></select>
+      <label class="sr" for="levelSel">Level</label>
+      <select id="levelSel"></select>
+      <div class="toggles">
+        <label><input type="checkbox" id="optNumbers" checked> Values</label>
+        <label><input type="checkbox" id="optArrows" checked> Wind</label>
+      </div>
+    </div>
+
+    <div id="legend" class="panel"></div>
+    <div id="hoverReadout" class="panel hidden"></div>
+
+    <div id="timeBar" class="panel">
+      <button id="playBtn" class="icon-btn" aria-label="Play">▶</button>
+      <div class="time-wrap">
+        <div id="timeLabel"></div>
+        <input type="range" id="timeSlider" min="0" max="0" value="0">
+        <div id="dayTicks"></div>
+      </div>
+    </div>
+
+    <section id="pointPanel" class="sheet hidden" aria-label="Point forecast">
+      <div class="sheet-grip" id="sheetGrip"></div>
+      <div class="sheet-head">
+        <div>
+          <div id="ptTitle" class="pt-title"></div>
+          <div id="ptSub" class="pt-sub"></div>
+        </div>
+        <button class="icon-btn" id="ptClose" aria-label="Close">✕</button>
+      </div>
+      <nav class="subtabs" id="ptTabs">
+        <button data-tab="now" class="active">Now</button>
+        <button data-tab="meteogram">Meteogram</button>
+        <button data-tab="upper">Upper air</button>
+        <button data-tab="sounding">Sounding</button>
+        <button data-tab="table">Hourly table</button>
+        <button data-tab="models">Confidence</button>
+      </nav>
+      <div id="ptBody" class="sheet-body"></div>
+    </section>
+  </main>
+
+  <main id="outlookView" class="view">
+    <div id="outlookBody" class="outlook"></div>
+  </main>
+
+  <dialog id="settings">
+    <form method="dialog">
+      <h3>Settings</h3>
+      <label>Units
+        <select id="setUnits"><option value="imperial">Imperial (°F, in, ft)</option><option value="metric">Metric (°C, mm, m)</option></select>
+      </label>
+      <label>Wind speed
+        <select id="setWind"><option value="mph">mph</option><option value="kt">knots</option><option value="kmh">km/h</option><option value="ms">m/s</option></select>
+      </label>
+      <label>Upper-air chart top
+        <select id="setTop"><option value="14000">14,000 ft</option><option value="18000" selected>18,000 ft</option><option value="25000">25,000 ft</option><option value="40000">40,000 ft</option></select>
+      </label>
+      <label>Basemap
+        <select id="setBase"><option value="topo">Topographic</option><option value="relief">Shaded relief</option><option value="sat">Satellite</option><option value="otm">OpenTopoMap</option></select>
+      </label>
+      <p class="muted small">Data: NOAA HRRR (3 km, every 25 mb), NAM 3 km nest, RAP 13 km, earlier HRRR runs; long range from ECMWF, GFS, ICON, GEM, UKMO and GEFS/ECMWF ensembles via Open-Meteo; NWS Salt Lake City discussion.</p>
+      <menu><button value="ok">Done</button></menu>
+    </form>
+  </dialog>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="js/util.js?v=2"></script>
+<script src="js/charts.js?v=2"></script>
+<script src="js/point.js?v=2"></script>
+<script src="js/outlook.js?v=2"></script>
+<script src="js/app.js?v=2"></script>
+</body>
+</html>
