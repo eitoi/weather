@@ -25,10 +25,18 @@
   });
   WX.on('time', () => {
     if (!pt) return;
-    if (tab === 'now' || tab === 'sounding' || tab === 'table' || tab === 'models') render(true);
+    if (tab === 'sub') return;
+    if (tab === 'now') {
+      body.querySelectorAll('tr[data-h]').forEach(r => r.classList.toggle('sel', r.dataset.h !== '' && +r.dataset.h === WX.t));
+      charts.forEach(c => c.setSel && c.setSel(WX.t));
+      const pill = body.querySelector('.box .conf-pill'); if (pill) pill.outerHTML = confPill(g('CONF_ALL')[WX.t]);
+      return;
+    }
+    if (tab === 'sounding' || tab === 'table' || tab === 'models') render(true);
     else charts.forEach(c => c.setSel && c.setSel(WX.t));
   });
   WX.on('units', () => pt && render());
+  WX.on('subtime', ts => { if (pt && tab === 'sub') body.querySelectorAll('tr[data-s]').forEach(r => r.classList.toggle('sel', +r.dataset.s === ts)); });
   let rz; window.addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => pt && !panelEl.classList.contains('hidden') && render(true), 200); });
 
   function render(keepScroll) {
@@ -36,7 +44,9 @@
     const sc = body.scrollTop;
     charts.forEach(c => c.destroy && c.destroy()); charts = [];
     body.innerHTML = '';
-    ({ now, meteogram, upper, sounding, table, models })[tab]();
+    document.getElementById('ptSubTab').classList.toggle('hidden', !(WX.meta.sub && WX.subTimes.length));
+    if (tab === 'sub' && !(WX.meta.sub && WX.subTimes.length)) tab = 'now';
+    ({ now, meteogram, upper, sounding, table, models, sub })[tab]();
     if (keepScroll) body.scrollTop = sc;
   }
 
@@ -60,38 +70,166 @@
   const card = (k, v, s = '') => `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`;
   const ceilOk = v => isFinite(v) && v < 15000;
 
-  /* ------------------------------------------------------------ Now */
-  function now() {
-    const t = t0(), src = WX.meta.sources[t];
-    const u = g('U10')[t], v = g('V10')[t], s = Math.hypot(u, v), d = WX.wdir(u, v);
-    const ap = g('APCP1'), snow = snowHourly();
-    const next24p = sumRange(ap, t + 1, t + 24), next24s = sumRange(snow, t + 1, t + 24);
-    const frz = g('CPOFP')[t], cb = g('CBASE')[t], ce = g('CEIL')[t];
-    const conf = g('CONF_ALL')[t];
-    let h = `<div class="controls-row"><b>${WX.time.full(WX.times[t])}</b><span class="muted small">HRRR ${new Date(src.run).getUTCHours()}Z run, forecast hour ${src.fh}</span></div><div class="cards">`;
-    h += card('Temperature', `${fmt(U.temp(g('T2')[t]))}${U.tempU()}`, `Dew pt ${fmt(U.temp(g('D2')[t]))}${U.tempU()} · RH ${fmt(g('RH2')[t])}%`);
-    h += card('Wind 10 m', `${fmt(U.wind(s))} <small>${U.windU()}</small>`, `from ${WX.dirName(d)} ${fmt(d)}° · gust ${fmt(U.wind(g('GUST')[t]))}`);
-    h += card('Precip this hour', `${fmt(U.precip(ap[t] || 0), U.imperial() ? 2 : 1)} <small>${U.precipU()}</small>`, isFinite(frz) && ap[t] > 0 ? `${fmt(frz)}% frozen` : (ap[t] > 0 ? '' : 'none'));
-    h += card('Next 24 h', `${fmt(U.precip(next24p), U.imperial() ? 2 : 1)} <small>${U.precipU()}</small>`, `snow ${fmt(U.snow(next24s), 1)} ${U.snowU()}`);
-    h += card('Cloud cover', `${fmt(g('TCDC')[t])}%`, `L ${fmt(g('LCDC')[t])} · M ${fmt(g('MCDC')[t])} · H ${fmt(g('HCDC')[t])}`);
-    h += card('Cloud base', ceilOk(cb) ? `${fmt(U.len(cb))} <small>${U.lenU()}</small>` : '–', ceilOk(ce) ? `ceiling ${fmt(U.len(ce))} ${U.lenU()}` : 'no ceiling');
-    h += card('Freezing level', `${fmt(U.len(g('FRZLVL')[t]))} <small>${U.lenU()}</small>`, 'MSL');
-    h += card('Mixed layer top', `${fmt(U.len(g('HPBL')[t] + cell.elev))} <small>${U.lenU()}</small>`, `${fmt(U.len(g('HPBL')[t]))} ${U.lenU()} above model ground`);
-    h += card('CAPE / LI', `${fmt(g('CAPE')[t])}`, `J/kg · lifted index ${fmt(g('LFTX')[t], 1)}`);
-    h += card('Visibility', `${fmt(U.vis(g('VIS')[t]), 1)} <small>${U.visU()}</small>`, `radar ${fmt(g('REFC')[t])} dBZ`);
-    h += card('Pressure', `${fmt(g('MSLP')[t], 1)}`, `hPa MSL · sfc ${fmt(g('PSFC')[t])}`);
-    h += card('HRRR confidence', confPill(conf), `${fmt(g('CONF_N')[t])} comparison models`);
-    h += '</div>';
-    // winds aloft table
-    const lv = WX.meta.levels;
-    let rows = '';
-    for (let l = lv.length - 1; l >= 0; l--) {
-      const p = lv[l], z = g(`HGT:${p}`)[t]; if (!(z >= cell.elev) || z * 3.28084 > WX.prefs.top + 500) continue;
-      const uu = g(`UGRD:${p}`)[t], vv = g(`VGRD:${p}`)[t], tc = g(`TMP:${p}`)[t];
-      rows += `<tr><td>${fmt(U.len(z))} ${U.lenU()}</td><td>${p}</td><td>${WX.dirName(WX.wdir(uu, vv))} ${fmt(WX.wdir(uu, vv))}°</td><td><b>${fmt(U.wind(Math.hypot(uu, vv)))}</b></td><td>${fmt(U.temp(tc))}</td><td>${fmt(g(`RH:${p}`)[t])}</td></tr>`;
+  /* ------------------------------------------------------------ Summary: winds, confidence, precip */
+  const FT10K = 3048;   // 10,000 ft in metres
+  /* Wind and temperature at 10,000 ft MSL, interpolated (linear in height, u/v as vectors) between the two
+     HRRR pressure levels that bracket it at this grid cell, every hour. NaN where 10,000 ft is below model terrain. */
+  function wind10k() {
+    const lv = WX.meta.levels, n = T(), u = new Float32Array(n).fill(NaN), v = new Float32Array(n).fill(NaN), tc = new Float32Array(n).fill(NaN);
+    const Z = lv.map(p => g(`HGT:${p}`)), UU = lv.map(p => g(`UGRD:${p}`)), VV = lv.map(p => g(`VGRD:${p}`)), TT = lv.map(p => g(`TMP:${p}`));
+    for (let t = 0; t < n; t++) {
+      if (cell.elev > FT10K) continue;
+      for (let l = 0; l < lv.length - 1; l++) {
+        const z0 = Z[l][t], z1 = Z[l + 1][t];
+        if (z0 <= FT10K && FT10K <= z1) {
+          const f = (FT10K - z0) / (z1 - z0);
+          u[t] = UU[l][t] + (UU[l + 1][t] - UU[l][t]) * f;
+          v[t] = VV[l][t] + (VV[l + 1][t] - VV[l][t]) * f;
+          tc[t] = TT[l][t] + (TT[l + 1][t] - TT[l][t]) * f;
+          break;
+        }
+      }
     }
-    h += `<h4>Winds aloft (every 25 mb)</h4><div class="tbl-wrap"><table class="data"><thead><tr><th>Altitude MSL</th><th>mb</th><th>Direction</th><th>Speed ${U.windU()}</th><th>Temp ${U.tempU()}</th><th>RH %</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-    body.innerHTML = h;
+    return { u, v, tc };
+  }
+
+  function precipSummary() {
+    const ap = g('APCP1'), fz = g('CPOFP'), sn = snowHourly(), n = T(), wetMin = 0.254;   // 0.01"
+    const end = WX.times[n - 1];
+    let tot = 0, frozen = 0, snow = 0, first = -1, last = -1, peak = -1;
+    for (let t = 0; t < n; t++) {
+      const p = ap[t] || 0;
+      tot += p; snow += sn[t] || 0; frozen += p * (isFinite(fz[t]) ? fz[t] : 0) / 100;
+      if (p >= wetMin) { if (first < 0) first = t; last = t; if (peak < 0 || p > ap[peak]) peak = t; }
+    }
+    const dec = U.imperial() ? 2 : 1, tm = d => WX.time.full(d);
+    if (first < 0) return tot >= 0.05 ? `Only a trace (${fmt(U.precip(tot), dec)} ${U.precipU()}) through ${tm(end)}.` : `Dry through ${tm(end)}.`;
+    const fr = frozen / tot, kind = fr >= 0.7 ? 'Snow' : fr > 0.2 ? 'Rain/snow mix' : 'Rain';
+    const snowTxt = snow >= 0.25 ? ` (~${fmt(U.snow(snow), 1)} ${U.snowU()} of snow)` : '';
+    const span = first === last ? `at ${tm(WX.times[first])}` : `${tm(WX.times[first])} to ${tm(WX.times[last])}`;
+    return `${kind}, ${fmt(U.precip(tot), dec)} ${U.precipU()} water${snowTxt}, ${span}; heaviest ${tm(WX.times[peak])} (${fmt(U.precip(ap[peak]), dec)} ${U.precipU()}/h).`;
+  }
+
+  async function now() {
+    const p = WX.point;
+    let sp = null;
+    if (WX.meta.sub && WX.subTimes.length) { try { sp = await WX.getSubPoint(p.j, p.i); } catch (e) { sp = null; } }
+    if (WX.point !== p || tab !== 'now') return;
+    body.innerHTML = '';
+    const t = t0(), conf = g('CONF_ALL'), up = wind10k();
+    const head = document.createElement('div');
+    head.innerHTML = `<div class="box"><div class="controls-row" style="margin:0"><b>HRRR confidence now:</b> ${confPill(conf[t])}
+        <span class="muted small">${WX.time.full(WX.times[t])} · agreement with NAM, RAP and earlier HRRR runs</span></div>
+      <div style="margin-top:6px"><b>Precipitation:</b> ${esc(precipSummary())}</div></div>`;
+    body.appendChild(head);
+
+    const u10 = g('U10'), v10 = g('V10');
+    charts.push(WX.charts.panel(body, { title: 'Surface wind (10 m)', unit: U.windU(), zeroBase: true, height: 140,
+      series: [{ name: 'Sustained', color: css('--s1'), values: Array.from(u10, (u, i) => U.wind(Math.hypot(u, v10[i]))) },
+        { name: 'Gust', color: css('--s2'), values: Array.from(g('GUST'), U.wind), width: 1.5, dash: '4 3' }],
+      arrows: { u: u10, v: v10 },
+      tipExtra: i => `<div>From ${WX.dirName(WX.wdir(u10[i], v10[i]))} ${fmt(WX.wdir(u10[i], v10[i]))}°</div>` }));
+    const below = cell.elev > FT10K;
+    charts.push(WX.charts.panel(body, { title: `10,000 ft wind${U.imperial() ? '' : ' (3,048 m)'}${below ? ' (below model terrain here)' : ''}`, unit: U.windU(), zeroBase: true, height: 130,
+      series: [{ name: '10,000 ft', color: css('--s7'), values: Array.from(up.u, (u, i) => U.wind(Math.hypot(u, up.v[i]))) }],
+      arrows: { u: up.u, v: up.v },
+      tipExtra: i => `<div>From ${WX.dirName(WX.wdir(up.u[i], up.v[i]))} ${fmt(WX.wdir(up.u[i], up.v[i]))}° · ${fmt(U.temp(up.tc[i]))}${U.tempU()}</div>` }));
+    charts.push(WX.charts.panel(body, { title: 'HRRR confidence', unit: '%', fixed: true, yMin: 0, yMax: 100, height: 90,
+      series: [{ name: 'Overall', color: css('--s3'), values: conf }] }));
+
+    // merged timeline: hourly rows, replaced by 15-minute rows inside the dawn/dusk windows
+    const rows = [];
+    const subIn = [];
+    if (sp) WX.subTimes.forEach((q, i) => subIn.push({ q, i }));
+    const covered = q => subIn.length && WX.meta.sub.spans.some(s => q >= new Date(s.start) && q <= new Date(s.end));
+    for (let h = 0; h < T(); h++) if (!covered(WX.times[h])) rows.push({ q: WX.times[h], h });
+    for (const { q, i } of subIn) {
+      const h = WX.times.findIndex(d => +d === +q);
+      rows.push({ q, s: i, h: h >= 0 ? h : null });
+    }
+    rows.sort((a, b) => a.q - b.q);
+    const dir = (u, v) => isFinite(u) ? `${WX.dirName(WX.wdir(u, v))} ${fmt(WX.wdir(u, v))}°` : '–';
+    let html = '', lastDay = '';
+    for (const r of rows) {
+      let su, sv, gu;
+      if (r.s !== undefined) { su = sp.get('U10')[r.s]; sv = sp.get('V10')[r.s]; gu = sp.get('GUST')[r.s]; }
+      else { su = u10[r.h]; sv = v10[r.h]; gu = g('GUST')[r.h]; }
+      const hasH = r.h !== null && r.h !== undefined;
+      const uu = hasH ? up.u[r.h] : NaN, vv = hasH ? up.v[r.h] : NaN;
+      const day = WX.time.dateKey(r.q), newDay = lastDay && day !== lastDay; lastDay = day;
+      const label = r.s !== undefined ? WX.time.hmShort(r.q) : WX.time.hour(r.q);
+      html += `<tr data-h="${hasH ? r.h : ''}" class="${hasH && r.h === t ? 'sel' : ''} ${newDay ? 'day' : ''} ${r.s !== undefined ? 'q15' : ''}">
+        <td>${WX.time.day(r.q)} ${label}</td><td>${dir(su, sv)}</td><td><b>${fmt(U.wind(Math.hypot(su, sv)))}</b></td><td>${fmt(U.wind(gu))}</td>
+        <td>${hasH ? dir(uu, vv) : ''}</td><td>${hasH ? `<b>${fmt(U.wind(Math.hypot(uu, vv)))}</b>` : ''}</td>
+        <td>${hasH && isFinite(conf[r.h]) ? fmt(conf[r.h]) : ''}</td></tr>`;
+    }
+    const tb = document.createElement('div');
+    tb.innerHTML = `<h4>Winds by time</h4>
+      <div class="tbl-wrap tall"><table class="data"><thead><tr><th>Time</th><th>Surface dir</th><th>Speed ${U.windU()}</th><th>Gust</th><th>10,000 ft dir</th><th>Speed</th><th>Conf %</th></tr></thead><tbody>${html}</tbody></table></div>
+      <p class="muted small">Hourly HRRR, with 15-minute HRRR rows (shaded) for the ${WX.meta.sub ? WX.meta.sub.window_h : 3} daylight hours after sunrise and before sunset. HRRR has no 15-minute data aloft, so 10,000 ft winds and confidence are hourly${below ? '; 10,000 ft is below the 3 km model terrain at this cell' : ''}. Tap a row to show that hour on the map.</p>`;
+    body.appendChild(tb);
+    tb.querySelectorAll('tr[data-h]').forEach(r => { if (r.dataset.h !== '') r.onclick = () => WX.setTime(+r.dataset.h); });
+  }
+
+  /* ------------------------------------------------------------ 15-minute dawn/dusk */
+  async function sub() {
+    const meta = WX.meta.sub, p = WX.point;
+    body.innerHTML = '<p class="muted">Loading 15-minute data…</p>';
+    let sp;
+    try { sp = await WX.getSubPoint(p.j, p.i); } catch (e) { body.innerHTML = '<p>15-minute data not available.</p>'; return; }
+    if (WX.point !== p || tab !== 'sub') return;
+    body.innerHTML = `<p class="muted small">HRRR ${new Date(meta.run).getUTCHours()}Z run, every 15 minutes, for the daylight ${meta.window_h} h after sunrise and before sunset (surface fields only; HRRR's 15-minute output stops at 18 h). Tap a chart to show that time on the map.</p>`;
+    const g = k => sp.get(k), all = WX.subTimes;
+    const dec = U.imperial() ? 2 : 1;
+    const saveTimes = WX.times, saveT = WX.t;
+    try {
+      for (const span of meta.spans) {
+        const idx = all.map((q, i) => i).filter(i => all[i] >= new Date(span.start) && all[i] <= new Date(span.end));
+        if (!idx.length) continue;
+        const pick = k => idx.map(i => g(k)[i]);
+        const sel = idx.indexOf(WX.ts);
+        const h = document.createElement('h4');
+        h.textContent = `${WX.time.dayLong(all[idx[0]])} · ${span.label} · ${span.label === 'morning' ? 'sunrise' : 'sunset'} ${WX.time.hmShort(new Date(span.sun))}`;
+        body.appendChild(h);
+        WX.times = idx.map(i => all[i]); WX.t = sel >= 0 ? sel : -1;
+        const common = { night: false, xLabel: (d, t) => (t % 4 === 0 || t === idx.length - 1) ? WX.time.hmShort(d) : null,
+          tipTime: WX.time.fullMin, noClick: true };
+        const u10 = pick('U10'), v10 = pick('V10'), u80 = pick('U80'), v80 = pick('V80');
+        charts.push(WX.charts.panel(body, Object.assign({}, common, { title: 'Wind', unit: U.windU(), zeroBase: true, height: 150,
+          series: [
+            { name: '10 m', color: css('--s1'), values: u10.map((u, t) => U.wind(Math.hypot(u, v10[t]))) },
+            { name: '10 m 5-min avg', color: css('--s3'), values: pick('WAVG10').map(U.wind), width: 1.5 },
+            { name: 'Gust', color: css('--s2'), values: pick('GUST').map(U.wind), width: 1.5, dash: '4 3' },
+            { name: '80 m', color: css('--s7'), values: u80.map((u, t) => U.wind(Math.hypot(u, v80[t]))), width: 1.5 }],
+          arrows: { u: u10, v: v10 },
+          tipExtra: t => `<div>10 m from ${WX.dirName(WX.wdir(u10[t], v10[t]))} ${fmt(WX.wdir(u10[t], v10[t]))}° · 80 m from ${WX.dirName(WX.wdir(u80[t], v80[t]))} ${fmt(WX.wdir(u80[t], v80[t]))}°</div>` })));
+        charts.push(WX.charts.panel(body, Object.assign({}, common, { title: 'Temperature & dew point', unit: U.tempU(), height: 120,
+          series: [{ name: 'Temperature', color: css('--s8'), values: pick('T2').map(U.temp), fmt: v => fmt(v, 1) },
+            { name: 'Dew point', color: css('--s3'), values: pick('D2').map(U.temp), fmt: v => fmt(v, 1) }] })));
+        charts.push(WX.charts.panel(body, Object.assign({}, common, { title: 'Sunshine at the ground', unit: 'W/m²', fixed: true, yMin: 0, yMax: 1000, height: 100,
+          series: [{ name: 'Solar radiation', color: css('--s4'), values: pick('DSWRF') }] })));
+        const ap = pick('APCP15'), fz = pick('CPOFP');
+        if (ap.some(v => v > 0)) {
+          charts.push(WX.charts.panel(body, Object.assign({}, common, { title: 'Precipitation per 15 min', unit: U.precipU(), zeroBase: true, dec, tickDec: dec, minSpan: U.imperial() ? 0.02 : 0.5, height: 100,
+            series: [{ name: 'Precip', color: css('--s3'), values: ap.map(v => U.precip(v || 0)), type: 'bar', fmt: (v, t) => `${fmt(v, dec)} (${fmt(fz[t])}% frozen)` }] })));
+        }
+        const cb = pick('CBASE').map(v => v < 15000 ? U.len(v) : NaN);
+        if (cb.some(isFinite)) {
+          charts.push(WX.charts.panel(body, Object.assign({}, common, { title: 'Cloud base (MSL)', unit: U.lenU(), height: 100,
+            series: [{ name: 'Cloud base', color: css('--s1'), values: cb }] })));
+        }
+        // table
+        let rows = '';
+        idx.forEach((i, t) => {
+          const u = g('U10')[i], v = g('V10')[i], uu = g('U80')[i], vv = g('V80')[i], b = g('CBASE')[i];
+          rows += `<tr class="${i === WX.ts && WX.mode === 'sub' ? 'sel' : ''}" data-s="${i}"><td>${WX.time.hmShort(all[i])}</td><td>${WX.dirName(WX.wdir(u, v))} ${fmt(WX.wdir(u, v))}°</td><td><b>${fmt(U.wind(Math.hypot(u, v)))}</b></td><td>${fmt(U.wind(g('WAVG10')[i]))}</td><td>${fmt(U.wind(g('GUST')[i]))}</td><td>${WX.dirName(WX.wdir(uu, vv))} ${fmt(U.wind(Math.hypot(uu, vv)))}</td><td>${fmt(U.temp(g('T2')[i]), 1)}</td><td>${fmt(U.temp(g('D2')[i]), 1)}</td><td>${fmt(g('DSWRF')[i])}</td><td>${g('APCP15')[i] > 0 ? fmt(U.precip(g('APCP15')[i]), dec) : '–'}</td><td>${b < 15000 ? fmt(U.len(b)) : '–'}</td><td>${fmt(U.vis(g('VIS')[i]), 1)}</td></tr>`;
+        });
+        const d = document.createElement('div');
+        d.innerHTML = `<div class="tbl-wrap"><table class="data"><thead><tr><th>Time</th><th>10 m dir</th><th>Wind ${U.windU()}</th><th>5-min avg</th><th>Gust</th><th>80 m</th><th>T ${U.tempU()}</th><th>Td ${U.tempU()}</th><th>Sun W/m²</th><th>Precip ${U.precipU()}</th><th>Base ${U.lenU()}</th><th>Vis ${U.visU()}</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+        body.appendChild(d);
+        d.querySelectorAll('tr[data-s]').forEach(r => (r.onclick = () => { if (WX.mode !== 'sub') WX.setMode('sub'); WX.setSubTime(+r.dataset.s); }));
+      }
+    } finally { WX.times = saveTimes; WX.t = saveT; }
   }
 
   /* ------------------------------------------------------------ Meteogram */

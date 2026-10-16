@@ -12,7 +12,7 @@ const WX = window.WX = {
 };
 
 function loadPrefs() {
-  const d = { units: 'imperial', wind: 'mph', top: 18000, base: 'topo', numbers: true, arrows: true, opacity: {}, launches: true, spots: '75', fit: false };
+  const d = { units: 'imperial', wind: 'mph', top: 18000, base: 'topo', numbers: true, arrows: true, opacity: {}, launches: true, spots: '75', fit: false, ghToken: '', ghRepo: '' };
   try { return Object.assign(d, JSON.parse(localStorage.getItem('wx-prefs') || '{}')); } catch (e) { return d; }
 }
 function savePrefs() { try { localStorage.setItem('wx-prefs', JSON.stringify(WX.prefs)); } catch (e) { /* private mode */ } }
@@ -40,7 +40,8 @@ WX.load = async function () {
   WX.times = meta.times.map(s => new Date(s));
   WX.grid = { ny: meta.grid.ny, nx: meta.grid.nx, lat: f.subarray(0, n), lon: f.subarray(n, 2 * n), terrain: f.subarray(2 * n, 3 * n) };
   WX.fidx = Object.fromEntries(meta.point_fields.map((k, i) => [k, i]));
-  WX.maps.clear(); WX.pts.clear();
+  WX.maps.clear(); WX.pts.clear(); WX.subMaps.clear(); WX.subPts.clear();
+  WX.subTimes = meta.sub ? meta.sub.times.map(x => new Date(x)) : [];
   if (meta.longrange) {
     fetch(DATA + meta.longrange + '?v=' + encodeURIComponent(meta.generated)).then(r => r.ok ? r.json() : null)
       .then(j => { WX.lr = j; WX.emit('longrange'); }).catch(() => {});
@@ -58,6 +59,43 @@ WX.getMap = function (key) {
   });
   WX.maps.set(key, p);
   p.catch(() => WX.maps.delete(key));
+  return p;
+};
+
+/* 15-minute dawn/dusk data (meta.sub): same layout as maps/points with its own time axis. */
+function decode(buf, scale) {
+  const raw = new Int16Array(buf), out = new Float32Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw[i] === -32768 ? NaN : raw[i] * scale;
+  return out;
+}
+WX.subMaps = new Map(); WX.subPts = new Map();
+WX.getSubMap = function (key) {
+  if (WX.subMaps.has(key)) return WX.subMaps.get(key);
+  const f = WX.meta.sub.fields[key];
+  const p = f ? fetchBin('sub/' + key + '.bin?v=' + encodeURIComponent(WX.meta.generated)).then(b => decode(b, f.scale))
+    : Promise.reject(new Error('no 15-min ' + key));
+  WX.subMaps.set(key, p); p.catch(() => WX.subMaps.delete(key));
+  return p;
+};
+WX.getSubPoint = function (j, i) {
+  const id = j + '_' + i;
+  if (WX.subPts.has(id)) return WX.subPts.get(id);
+  const sub = WX.meta.sub;
+  const p = fetchBin('subpts/' + id + '.bin?v=' + encodeURIComponent(WX.meta.generated)).then(buf => {
+    const raw = new Int16Array(buf), S = sub.times.length, cache = {};
+    return {
+      get(key) {
+        if (cache[key]) return cache[key];
+        const f = sub.point_fields.indexOf(key), out = new Float32Array(S).fill(NaN);
+        if (f < 0) return out;
+        const sc = sub.fields[key].scale;
+        for (let t = 0; t < S; t++) { const v = raw[f * S + t]; out[t] = v === -32768 ? NaN : v * sc; }
+        return (cache[key] = out);
+      },
+    };
+  });
+  WX.subPts.set(id, p); p.catch(() => WX.subPts.delete(id));
+  if (WX.subPts.size > 40) WX.subPts.delete(WX.subPts.keys().next().value);
   return p;
 };
 
@@ -135,6 +173,8 @@ const _fmts = {};
 function tf(opts) { const k = JSON.stringify(opts); return _fmts[k] || (_fmts[k] = new Intl.DateTimeFormat('en-US', Object.assign({ timeZone: TZ }, opts))); }
 WX.time = {
   full: d => tf({ weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric' }).format(d),
+  fullMin: d => tf({ weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(d),
+  hmShort: d => tf({ hour: 'numeric', minute: '2-digit' }).format(d).replace(' ', '').toLowerCase(),
   hour: d => tf({ hour: 'numeric' }).format(d).replace(' ', '').toLowerCase(),
   day: d => tf({ weekday: 'short', day: 'numeric' }).format(d),
   dayLong: d => tf({ weekday: 'long', month: 'short', day: 'numeric' }).format(d),

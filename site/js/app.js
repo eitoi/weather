@@ -17,12 +17,16 @@
       id: 'wind', label: 'Wind', arrows: true,
       levels: upperLevels(['UGRD', 'VGRD'], [
         { id: 'sfc', label: 'Surface 10 m', keys: ['U10', 'V10'] },
-        { id: 'gust', label: 'Gusts (surface)', keys: ['GUST', 'U10', 'V10'] },
-        { id: 'max10', label: 'Max 10 m wind in hour', keys: ['WMAX10', 'U10', 'V10'] },
+        { id: 'gust', label: 'Gusts (surface)', keys: ['GUST', 'U10', 'V10'], scalar: true },
+        { id: 'max10', label: 'Max 10 m wind in hour', keys: ['WMAX10', 'U10', 'V10'], scalar: true },
         { id: '80m', label: '80 m above ground', keys: ['U80', 'V80'] }]),
-      value: (g, k, lv) => lv.id === 'gust' ? g('GUST', k) : lv.id === 'max10' ? g('WMAX10', k) :
-        WX.wspd(g(lv.keys[0], k), g(lv.keys[1], k)),
-      uv: (g, k, lv) => lv.id === 'gust' || lv.id === 'max10' ? [g('U10', k), g('V10', k)] : [g(lv.keys[0], k), g(lv.keys[1], k)],
+      subLevels: () => [
+        { id: 'sfc', label: 'Surface 10 m', keys: ['U10', 'V10'] },
+        { id: 'gust', label: 'Gusts (surface)', keys: ['GUST', 'U10', 'V10'], scalar: true },
+        { id: 'avg5', label: '10 m, 5-minute average', keys: ['WAVG10', 'U10', 'V10'], scalar: true },
+        { id: '80m', label: '80 m above ground', keys: ['U80', 'V80'] }],
+      value: (g, k, lv) => lv.scalar ? g(lv.keys[0], k) : WX.wspd(g(lv.keys[0], k), g(lv.keys[1], k)),
+      uv: (g, k, lv) => lv.scalar ? [g('U10', k), g('V10', k)] : [g(lv.keys[0], k), g(lv.keys[1], k)],
       scale: () => S.rampScale('blue', 0, 30), show: v => U.wind(v), unit: () => U.windU(), dec: 0,
     },
     {
@@ -58,13 +62,16 @@
         { id: '1h', label: 'Hourly, by type', keys: ['APCP1', 'CPOFP'] },
         { id: 'acc', label: 'Accumulated from first hour', keys: ['APCP1'], acc: true },
         { id: 'rate', label: 'Rate (instantaneous)', keys: ['PRATE'] }],
+      subLevels: () => [
+        { id: '15m', label: '15-minute, by type', keys: ['APCP15', 'CPOFP'] },
+        { id: 'rate', label: 'Rate (instantaneous)', keys: ['PRATE'] }],
       value: (g, k, lv) => g(lv.keys[0], k),
-      scale: lv => S.rampScale('aqua', 0, lv.id === 'acc' ? 40 : 8, { clearBelow: 0.01 }),
+      scale: lv => S.rampScale('aqua', 0, lv.id === 'acc' ? 40 : lv.id === '15m' ? 3 : 8, { clearBelow: 0.01 }),
       colorFn: (lv, g, k, v, sc) => {
-        if (lv.id !== '1h' || !(v >= 0.01)) return sc.color(v);
+        if ((lv.id !== '1h' && lv.id !== '15m') || !(v >= 0.01)) return sc.color(v);
         const fz = g('CPOFP', k);
         const name = fz >= 70 ? 'violet' : fz > 20 ? 'orange' : 'aqua';
-        return S.rampScale(name, 0, 8).color(v);
+        return S.rampScale(name, 0, lv.id === '15m' ? 3 : 8).color(v);
       },
       show: v => U.precip(v), unit: () => U.precipU(), dec: () => U.imperial() ? 2 : 1,
       note: 'Hourly: aqua = rain, orange = mixed, violet = snow (HRRR % frozen)',
@@ -131,6 +138,13 @@
       value: (g, k, lv) => g(lv.keys[0], k), scale: () => S.divScale('red', 'blue', 20, 60, 100),
       show: v => v, unit: () => '%', dec: 0,
       note: 'Agreement of HRRR with NAM 3 km, RAP and the two previous HRRR runs',
+    },
+    {
+      id: 'solar', label: 'Sunshine',
+      levels: () => [{ id: 'dswrf', label: 'Solar radiation at the ground', keys: ['DSWRF'] }],
+      value: (g, k) => g('DSWRF', k), scale: () => S.rampScale('orange', 0, 900),
+      show: v => v, unit: () => 'W/m²', dec: 0,
+      note: 'Sunlight reaching the ground after clouds; drives thermals',
     },
     {
       id: 'terrain', label: 'Model terrain', static: true,
@@ -271,8 +285,18 @@
   }
 
   /* ---------------------------------------------------------------- layer data plumbing */
-  function layerObj() { return LAYERS.find(l => l.id === WX.layer) || LAYERS[0]; }
-  function levelObj(layer) { const lvls = layer.levels(); return lvls.find(l => l.id === WX.level) || lvls[0]; }
+  WX.mode = 'hourly';   // or 'sub' (15-minute dawn/dusk data)
+  WX.ts = 0;            // selected 15-minute step
+  function levelsFor(layer) {
+    if (WX.mode !== 'sub') return layer.levels();
+    if (layer.static) return [];
+    const f = WX.meta.sub.fields;
+    return (layer.subLevels ? layer.subLevels() : layer.levels())
+      .filter(l => l.keys.length && !l.p && !l.acc && !l.snowAcc && l.keys.every(k => f[k]));
+  }
+  const availLayers = () => LAYERS.filter(l => levelsFor(l).length);
+  function layerObj() { const av = availLayers(); return av.find(l => l.id === WX.layer) || av[0]; }
+  function levelObj(layer) { const lvls = levelsFor(layer); return lvls.find(l => l.id === WX.level) || lvls[0]; }
 
   async function accumulate(key, lv) {
     // cumulative sum along the time axis (precip), or snowfall built from per-run ASNOW totals
@@ -312,12 +336,13 @@
       arrays[lv.keys[0]] = await WX.accumulated(lv.keys[0], lv);
       for (const k of lv.keys.slice(1)) arrays[k] = await WX.getMap(k);
     } else {
-      const got = await Promise.all(lv.keys.map(k => WX.getMap(k)));
+      const getM = WX.mode === 'sub' ? WX.getSubMap : WX.getMap;
+      const got = await Promise.all(lv.keys.map(k => getM(k)));
       lv.keys.forEach((k, i) => (arrays[k] = got[i]));
     }
     if (lv.p) arrays['HGT'] = await WX.getMap('HGT:' + lv.p).catch(() => null);
     if (my !== reqId) return;
-    const t = WX.t;
+    const t = WX.mode === 'sub' ? WX.ts : WX.t;
     const g = (key, k) => { const a = arrays[key]; return a ? a[t * n + k] : NaN; };
     current = { layer, lv, getters: g, arrays };
     overlay.redraw();
@@ -372,12 +397,14 @@
   /* ---------------------------------------------------------------- controls */
   const layerSel = document.getElementById('layerSel'), levelSel = document.getElementById('levelSel');
   function fillLayers() {
-    layerSel.innerHTML = LAYERS.map(l => `<option value="${l.id}">${WX.esc(l.label)}</option>`).join('');
+    const av = availLayers();
+    layerSel.innerHTML = av.map(l => `<option value="${l.id}">${WX.esc(l.label)}</option>`).join('');
+    if (!av.find(l => l.id === WX.layer)) WX.layer = av[0].id;
     layerSel.value = WX.layer;
     fillLevels();
   }
   function fillLevels() {
-    const layer = layerObj(), lvls = layer.levels();
+    const layer = layerObj(), lvls = levelsFor(layer);
     levelSel.innerHTML = lvls.map(l => `<option value="${l.id}">${WX.esc(l.label)}</option>`).join('');
     if (!lvls.find(l => l.id === WX.level)) WX.level = lvls[0].id;
     levelSel.value = WX.level;
@@ -403,16 +430,72 @@
   const slider = document.getElementById('timeSlider'), tlabel = document.getElementById('timeLabel');
   function setTime(t, from) {
     WX.t = Math.max(0, Math.min(WX.times.length - 1, t));
-    slider.value = WX.t;
-    const src = WX.meta.sources[WX.t], run = new Date(src.run);
-    tlabel.innerHTML = `${WX.time.full(WX.times[WX.t])}<span class="src">HRRR ${String(run.getUTCHours()).padStart(2, '0')}Z +${src.fh}h</span>`;
-    refresh();
+    if (WX.mode === 'hourly') {
+      slider.value = WX.t;
+      const src = WX.meta.sources[WX.t], run = new Date(src.run);
+      tlabel.innerHTML = `${WX.time.full(WX.times[WX.t])}<span class="src">HRRR ${String(run.getUTCHours()).padStart(2, '0')}Z +${src.fh}h</span>`;
+      refresh();
+    }
     if (from !== 'point') WX.emit('time', WX.t);
   }
   WX.setTime = setTime;
-  slider.oninput = () => setTime(+slider.value);
+  function spanOf(ts) {
+    const q = WX.subTimes[ts];
+    return WX.meta.sub.spans.find(sp => q >= new Date(sp.start) && q <= new Date(sp.end));
+  }
+  function setSubTime(ts) {
+    WX.ts = Math.max(0, Math.min(WX.subTimes.length - 1, ts));
+    if (WX.mode === 'sub') {
+      slider.value = WX.ts;
+      const sp = spanOf(WX.ts), q = WX.subTimes[WX.ts];
+      const sun = sp ? `${sp.label === 'morning' ? 'sunrise' : 'sunset'} ${WX.time.hm(new Date(sp.sun))}` : '';
+      tlabel.innerHTML = `${WX.time.fullMin(q)}<span class="src">15-min · ${sun} · HRRR ${new Date(WX.meta.sub.run).getUTCHours()}Z</span>`;
+      refresh();
+    }
+    WX.emit('subtime', WX.ts);
+  }
+  WX.setSubTime = setSubTime;
+  const step = d => WX.mode === 'sub' ? setSubTime(WX.ts + d) : setTime(WX.t + d);
+  slider.oninput = () => WX.mode === 'sub' ? setSubTime(+slider.value) : setTime(+slider.value);
+
+  /* hourly <-> 15-minute mode */
+  const modeSeg = document.getElementById('modeSeg');
+  function setMode(m) {
+    if (m === 'sub' && !(WX.meta.sub && WX.subTimes.length)) m = 'hourly';
+    const was = WX.mode; WX.mode = m;
+    modeSeg.querySelectorAll('button').forEach(b => b.classList.toggle('active', b.dataset.m === m));
+    document.body.classList.toggle('sub-mode', m === 'sub');
+    fillLayers(); syncOpacity();
+    if (m === 'sub') {
+      slider.max = WX.subTimes.length - 1;
+      if (was !== 'sub') {   // jump to the 15-minute step nearest the hour being viewed (or now)
+        const ref = WX.times[WX.t] < Date.now() - 3600e3 ? Date.now() : +WX.times[WX.t];
+        let b = 0; WX.subTimes.forEach((q, i) => { if (Math.abs(q - ref) < Math.abs(WX.subTimes[b] - ref)) b = i; });
+        WX.ts = b;
+      }
+      dayTicks(); setSubTime(WX.ts);
+    } else {
+      slider.max = WX.times.length - 1;
+      if (was === 'sub') { const ref = WX.subTimes[WX.ts]; let b = 0; WX.times.forEach((d, i) => { if (Math.abs(d - ref) < Math.abs(WX.times[b] - ref)) b = i; }); WX.t = b; }
+      dayTicks(); setTime(WX.t);
+    }
+    saveHash();
+  }
+  WX.setMode = setMode;
+  modeSeg.querySelectorAll('button').forEach(b => (b.onclick = () => setMode(b.dataset.m)));
   function dayTicks() {
     const el = document.getElementById('dayTicks'); el.innerHTML = '';
+    if (WX.mode === 'sub') {   // one tick per dawn/dusk window
+      const S = WX.subTimes.length;
+      WX.meta.sub.spans.forEach(sp => {
+        const i = WX.subTimes.findIndex(q => +q === +new Date(sp.start)); if (i < 0) return;
+        const s = document.createElement('span');
+        s.style.left = (S > 1 ? i / (S - 1) * 100 : 0) + '%';
+        s.textContent = `${WX.time.day(new Date(sp.start))} ${sp.label === 'morning' ? 'AM' : 'PM'}`;
+        el.appendChild(s);
+      });
+      return;
+    }
     const T = WX.times.length;
     const firstMidnight = WX.times.findIndex(d => WX.time.localHour(d) === 0);
     WX.times.forEach((d, t) => {
@@ -430,11 +513,13 @@
   document.getElementById('playBtn').onclick = e => {
     if (playing) { clearInterval(playing); playing = null; e.currentTarget.textContent = '▶'; return; }
     e.currentTarget.textContent = '❚❚';
-    playing = setInterval(() => setTime(WX.t + 1 >= WX.times.length ? 0 : WX.t + 1), 650);
+    playing = setInterval(() => WX.mode === 'sub'
+      ? setSubTime(WX.ts + 1 >= WX.subTimes.length ? 0 : WX.ts + 1)
+      : setTime(WX.t + 1 >= WX.times.length ? 0 : WX.t + 1), 650);
   };
   document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-    if (e.key === 'ArrowRight') setTime(WX.t + 1); if (e.key === 'ArrowLeft') setTime(WX.t - 1);
+    if (e.key === 'ArrowRight') step(1); if (e.key === 'ArrowLeft') step(-1);
   });
 
   /* ---------------------------------------------------------------- point selection */
@@ -480,6 +565,7 @@
     p.set('l', WX.layer); p.set('lv', WX.level);
     if (WX.point) p.set('p', `${WX.point.clickLat.toFixed(4)},${WX.point.clickLon.toFixed(4)}${WX.point.name ? ',' + WX.point.name : ''}`);
     if (WX.view && WX.view !== 'map') p.set('v', WX.view);
+    if (WX.mode === 'sub') p.set('m', 'sub');
     history.replaceState(null, '', '#' + p.toString());
   }
   WX.saveHash = saveHash;
@@ -507,11 +593,15 @@
     document.getElementById('setWind').value = WX.prefs.wind;
     document.getElementById('setTop').value = WX.prefs.top;
     document.getElementById('setBase').value = WX.prefs.base;
+    document.getElementById('setToken').value = WX.prefs.ghToken || '';
+    document.getElementById('setRepo').value = WX.prefs.ghRepo || repoGuess();
     dlg.showModal();
   };
   dlg.addEventListener('close', () => {
     const u = document.getElementById('setUnits').value, w = document.getElementById('setWind').value;
     const top = +document.getElementById('setTop').value, b = document.getElementById('setBase').value;
+    WX.prefs.ghToken = document.getElementById('setToken').value.trim();
+    WX.prefs.ghRepo = document.getElementById('setRepo').value.trim();
     const changed = u !== WX.prefs.units || w !== WX.prefs.wind || top !== WX.prefs.top;
     WX.prefs.units = u; WX.prefs.wind = w; WX.prefs.top = top;
     if (b !== WX.prefs.base) { WX.prefs.base = b; setBase(); }
@@ -526,6 +616,68 @@
     document.getElementById('runInfo').innerHTML =
       `HRRR ${String(run.getUTCHours()).padStart(2, '0')}Z ${WX.time.day(run)} · updated ${ageS}`;
   }
+
+  /* ---------------------------------------------------------------- new data while the app is open */
+  function toast(msg, ms = 5000) {
+    let el = document.getElementById('toast');
+    if (!el) { el = document.createElement('div'); el.id = 'toast'; document.body.appendChild(el); }
+    el.innerHTML = msg; el.classList.add('show');
+    clearTimeout(toast._t); toast._t = setTimeout(() => el.classList.remove('show'), ms);
+  }
+  WX.toast = toast;
+  let checking = false;
+  async function checkForUpdate(manual) {
+    if (checking || !WX.meta) return false;
+    checking = true;
+    try {
+      const r = await fetch('data/meta.json?t=' + Date.now(), { cache: 'no-store' });
+      if (!r.ok) return false;
+      const m = await r.json();
+      if (m.generated === WX.meta.generated) { if (manual) toast('Already the newest forecast (HRRR ' + new Date(m.run).getUTCHours() + 'Z).'); return false; }
+      // keep what you're looking at: same valid time, point and view
+      const keepT = +WX.times[WX.t], keepS = WX.subTimes[WX.ts] ? +WX.subTimes[WX.ts] : null, pt = WX.point, mode = WX.mode;
+      await WX.load();
+      buildCorners();
+      let b = 0; WX.times.forEach((d, i) => { if (Math.abs(d - keepT) < Math.abs(WX.times[b] - keepT)) b = i; }); WX.t = b;
+      if (keepS !== null && WX.subTimes.length) { let c = 0; WX.subTimes.forEach((q, i) => { if (Math.abs(q - keepS) < Math.abs(WX.subTimes[c] - keepS)) c = i; }); WX.ts = c; }
+      modeSeg.classList.toggle('hidden', !(WX.meta.sub && WX.subTimes.length));
+      accCache.clear();
+      setMode(mode);
+      runInfo();
+      if (pt) WX.selectPoint(pt.clickLat, pt.clickLon, pt.name);
+      WX.emit('reloaded');
+      toast(`Updated to the HRRR ${new Date(WX.meta.run).getUTCHours()}Z run.`);
+      return true;
+    } catch (e) { console.warn(e); return false; } finally { checking = false; }
+  }
+  WX.checkForUpdate = checkForUpdate;
+
+  /* "Update now": start the GitHub Actions build (needs a token saved in Settings on this device) */
+  function repoGuess() {
+    if (WX.prefs.ghRepo) return WX.prefs.ghRepo;
+    if (location.hostname.endsWith('.github.io')) return location.hostname.split('.')[0] + '/' + location.pathname.split('/')[1];
+    return '';
+  }
+  document.getElementById('updateBtn').onclick = async () => {
+    if (await checkForUpdate(false)) return;
+    const repo = repoGuess();
+    if (!WX.prefs.ghToken || !repo) {
+      toast('The forecast rebuilds automatically every hour (~:55). To start a build from here, add a GitHub token in Settings.', 8000);
+      return;
+    }
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/update.yml/dispatches`, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + WX.prefs.ghToken, Accept: 'application/vnd.github+json' },
+        body: JSON.stringify({ ref: 'main' }),
+      });
+      if (r.status === 204) {
+        toast('Update started. New data usually appears in 5–10 minutes; the app will load it automatically.', 8000);
+        let n = 0; const iv = setInterval(async () => { n++; if (await checkForUpdate() || n > 20) clearInterval(iv); }, 60e3);
+      } else if (r.status === 401 || r.status === 403 || r.status === 404) {
+        toast(`GitHub refused the request (${r.status}). Check the token has Actions: Read and write on ${WX.esc(repo)}.`, 9000);
+      } else toast(`Couldn't start the update (GitHub ${r.status}).`);
+    } catch (e) { toast('Couldn\'t reach GitHub.'); }
+  };
 
   /* ---------------------------------------------------------------- boot */
   async function boot() {
@@ -545,8 +697,12 @@
     // start at the hour closest to now
     const now = Date.now();
     let t0 = 0; WX.times.forEach((d, t) => { if (Math.abs(d - now) < Math.abs(WX.times[t0] - now)) t0 = t; });
+    modeSeg.classList.toggle('hidden', !(WX.meta.sub && WX.subTimes.length));
     dayTicks(); runInfo(); setInterval(runInfo, 60000);
     setTime(t0);
+    if (p.get('m') === 'sub') setMode('sub');
+    setInterval(checkForUpdate, 5 * 60e3);
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
     if (p.get('p')) { const [la, lo, ...nm] = p.get('p').split(','); WX.selectPoint(+la, +lo, nm.join(',') || null); }
     if (p.get('v') === 'outlook') setView('outlook');
     WX.emit('ready');

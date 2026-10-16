@@ -185,3 +185,14 @@ dialog#settings menu button { padding: 6px 16px; border-radius: 8px; border: 0; 
   body.has-point #timeBar, body.has-point .leaflet-control-zoom { display: none; }
   .cards { grid-template-columns: repeat(2, 1fr); }
 }
+
+.mode-seg button { padding: 4px 8px; font-size: 12px; }
+#toast { position: fixed; left: 50%; top: calc(56px + var(--safe-top)); transform: translate(-50%, -20px); opacity: 0;
+  background: var(--surface-1); border: 1px solid var(--border); box-shadow: var(--shadow); border-radius: 10px;
+  padding: 8px 14px; font-size: 13px; z-index: 3000; max-width: min(520px, calc(100% - 32px)); pointer-events: none;
+  transition: opacity .2s, transform .2s; }
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+dialog#settings input[type=text], dialog#settings input[type=password] { padding: 6px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); }
+@media (max-width: 760px) { .mode-seg button { padding: 4px 6px; } #timeBar { flex-wrap: wrap; } }
+table.data tr.q15 td { background: color-mix(in srgb, var(--s4) 9%, var(--surface-1)); }
+table.data tr.q15.sel td, table.data tr.sel td { background: color-mix(in srgb, var(--accent) 16%, var(--surface-1)); }

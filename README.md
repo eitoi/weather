@@ -24,6 +24,22 @@ slider or the ← → keys to scrub time.
 - *Confidence*: HRRR against the NAM 3 km nest, RAP 13 km and the two previous HRRR runs, with the score
   broken down by category
 
+**15-min (dawn & dusk)**: switch the time bar to **15-min**, or open a point's **15-min** tab. You get HRRR's
+15-minute surface output for the daylight 3 hours after sunrise and before sunset, within the newest run's first
+18 hours:
+- wind at 10 m and 80 m, gusts, and the 5-minute average
+- temperature and dew point
+- sunshine (solar radiation), precipitation and type
+- cloud base, visibility, radar
+
+HRRR doesn't produce 15-minute upper-air data or anything beyond 18 h.
+The window length is `WINDOW_H` in `ingest/subhourly.py`.
+
+**Launches**: your known launches (triangles point the way the launch faces) and the predicted launch spots
+from `~/Documents/paraglider-launch`. Turn on **Wind fit** to colour the known launches by how the forecast
+10 m wind lines up with each launch: on the slope, crossing, over the back, or too strong. Rebuild the file
+with `.venv/bin/python tools/import_launches.py`.
+
 **Outlook** (after the HRRR window ends, out to about 10 days): a written summary of wind, precipitation and
 fronts. It is built from the ECMWF, GFS, ICON, GEM and UKMO deterministic runs, the GEFS and ECMWF
 ensembles, cold-front detection (700 mb cooling plus a wind veer or pressure trough), and the latest NWS
@@ -85,6 +101,20 @@ Offline caching only works over HTTPS, so for a home-screen app that works anywh
 4. Under **Actions → Update forecast → Run workflow**, start the first build. After that it runs every hour.
 5. On the iPhone, open `https://<you>.github.io/<repo>/` in Safari, tap **Share → Add to Home Screen**.
 
+## Keeping it up to date
+
+You don't have to run anything. GitHub rebuilds the forecast every hour at :55, and scheduled runs can start
+5–20 minutes late when GitHub is busy. An open copy of the app checks for new data every 5 minutes, and again
+whenever you switch back to it. When a new run is available, it loads it in place and keeps your point, layer
+and time.
+
+The **↻** button checks for new data right away. To make it *start* a build, add a token in **Settings**:
+1. Create a fine-grained token with *Only select repositories → weather* and *Actions: Read and write* (nothing
+   else).
+2. Paste it into Settings on each device where you want the button.
+
+The token is stored only in that browser. The page is public, so never put a token in the repository.
+
 ## Layout
 
 ```
@@ -94,6 +124,7 @@ ingest/      Python data pipeline (python -m ingest.run)
   hrrr.py      HRRR run discovery and extraction
   compare.py   NAM/RAP download and the confidence score
   longrange.py Open-Meteo multi-model + ensembles, front detection, NWS AFD, summary
+  subhourly.py 15-minute HRRR surface data for the sunrise/sunset windows
   run.py       orchestration and static-file output
 site/        static web app (no build step)
   data/        generated: meta.json, grid.bin, maps/*.bin, pts/*.bin, longrange.json

@@ -67,9 +67,10 @@
     WX.times.forEach((d, t) => {
       const h = WX.time.localHour(d);
       if (h === 0) el('line', { x1: x(t), x2: x(t), y1: m.t, y2: H - m.b, stroke: css('--border'), 'stroke-width': 1 }, g);
-      if (!opts.noX && (h % labelEvery === 0)) {
+      const lbl = opts.xLabel ? opts.xLabel(d, t) : (h % labelEvery === 0 ? (h === 0 ? WX.time.day(d) : WX.time.hour(d)) : null);
+      if (!opts.noX && lbl) {
         const tx = el('text', { x: x(t), y: H - 6, 'text-anchor': 'middle', 'font-size': 10, fill: css('--text-muted') }, g);
-        tx.textContent = h === 0 ? WX.time.day(d) : WX.time.hour(d);
+        tx.textContent = lbl;
       }
       // night shading
       if (opts.night !== false && (h >= 20 || h < 7)) {
@@ -133,7 +134,7 @@
     const showTip = (ev) => {
       const t = tToX(ev); setHover(t);
       const rows = opts.series.filter(s => s.type !== 'band').map(s => `<div><span class="sw ${s.type === 'bar' ? 'box' : ''}" style="display:inline-block;width:10px;height:${s.type === 'bar' ? 10 : 3}px;background:${s.color};margin-right:5px;vertical-align:middle"></span>${WX.esc(s.name)}: <b>${s.fmt ? s.fmt(s.values[t], t) : fmt(s.values[t], opts.dec ?? 0)}</b> ${opts.unit || ''}</div>`).join('');
-      tip.innerHTML = `<div class="t">${WX.time.full(WX.times[t])}</div>${rows}${opts.tipExtra ? opts.tipExtra(t) : ''}`;
+      tip.innerHTML = `<div class="t">${(opts.tipTime || WX.time.full)(WX.times[t])}</div>${rows}${opts.tipExtra ? opts.tipExtra(t) : ''}`;
       tip.classList.remove('hidden');
       const r = wrap.getBoundingClientRect(), px = ev.clientX - r.left;
       tip.style.left = Math.min(Math.max(0, px + 12), r.width - tip.offsetWidth - 4) + 'px';

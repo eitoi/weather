@@ -7,6 +7,8 @@ Output (all static files, served as-is by any web server / GitHub Pages):
   grid.bin                  float32 lat[ny*nx], lon[ny*nx], HRRR model terrain (m)[ny*nx]
   maps/<field>.bin          int16 [time][ny][nx]   (value = int * scale, -32768 = missing)
   pts/<j>_<i>.bin           int16 [field][time] for one grid point (all fields, for point views)
+  sub/<field>.bin           int16 [step][ny][nx]   15-minute surface data around sunrise/sunset (meta.sub)
+  subpts/<j>_<i>.bin        int16 [field][step] for one grid point
   longrange.json            multi-model extended outlook, NWS AFD, summary
 """
 import argparse
@@ -24,6 +26,7 @@ import numpy as np
 from .config import LEVELS, UPPER_VARS, SCALE, UNITS, SFC_FIELDS, PLACES, BBOX
 from . import hrrr as H
 from . import compare as C
+from . import subhourly as SUB
 
 log = logging.getLogger("run")
 ROOT = Path(__file__).resolve().parent.parent
@@ -124,7 +127,7 @@ def ensure_crop(crop, run):
 
 # ---------------------------------------------------------------- main build
 
-def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24):
+def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24, do_sub=True):
     t_start = time.time()
     R, S = H.latest_runs()
     log.info("newest HRRR run %s, newest 48-h run %s", R, S)
@@ -256,6 +259,35 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24)
     point_keys = map_keys + list(cmp_fields)
     allf = {**fields, **conf, **cmp_fields}
 
+    # ---- 15-minute surface data around sunrise / sunset (newest run, first 18 h)
+    sub_meta, sub_arrays = None, {}
+    if do_sub:
+        try:
+            sub_times, spans = SUB.windows(R, H.max_fh(R) if H.max_fh(R) <= 18 else 18)
+            by_fh = SUB.specs_for(R, sub_times)
+            got = fetch_hrrr("sub", [(R, fh) for fh in sorted(by_fh)], crop, lambda fh: by_fh[fh], workers)
+            S_n = len(sub_times)
+            for key in SUB.SUB_FIELDS:
+                a = np.full((S_n, ny, nx), np.nan, np.float32)
+                for si, q in enumerate(sub_times):
+                    m = int((q - R).total_seconds() // 60)
+                    v = got.get((R, -(-m // 60)), {}).get(f"{key}@{m}")
+                    if v is not None:
+                        a[si] = v
+                sub_arrays[key] = a
+            sub_meta = {
+                "times": [q.isoformat() + "Z" for q in sub_times],
+                "spans": [{"label": sp["label"], "start": sp["start"].isoformat() + "Z", "end": sp["end"].isoformat() + "Z",
+                           "sun": sp["sun"].isoformat(timespec="minutes") + "Z"} for sp in spans],
+                "window_h": SUB.WINDOW_H, "run": R.isoformat() + "Z",
+                "fields": {k: {"scale": v[3], "units": v[2], "src": "HRRR subhourly"} for k, v in SUB.SUB_FIELDS.items()},
+                "point_fields": list(SUB.SUB_FIELDS),
+            }
+            log.info("15-min: %d steps in %d windows", S_n, len(spans))
+        except Exception as e:  # noqa
+            log.warning("15-minute data failed: %s", e)
+            sub_meta, sub_arrays = None, {}
+
     # ---- write (into a temp dir, then swap)
     out_dir = Path(out_dir)
     tmp = out_dir.parent / (out_dir.name + ".tmp")
@@ -277,6 +309,17 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24)
         for i in range(nx):
             np.ascontiguousarray(stack[:, :, j, i]).tofile(tmp / "pts" / f"{j}_{i}.bin")
     np.concatenate([crop.lats.ravel(), crop.lons.ravel(), terrain.ravel()]).astype("<f4").tofile(tmp / "grid.bin")
+    if sub_meta and sub_meta["times"]:
+        (tmp / "sub").mkdir(); (tmp / "subpts").mkdir()
+        sq = {}
+        for k, a in sub_arrays.items():
+            v = np.clip(np.round(a / SUB.SUB_FIELDS[k][3]), -32767, 32767)
+            sq[k] = np.where(np.isfinite(v), v, MISSING).astype("<i2")
+            sq[k].tofile(tmp / "sub" / f"{k}.bin")
+        sst = np.stack([sq[k] for k in sub_meta["point_fields"]])
+        for j in range(ny):
+            for i in range(nx):
+                np.ascontiguousarray(sst[:, :, j, i]).tofile(tmp / "subpts" / f"{j}_{i}.bin")
 
     lr_end = times[-1]
     meta = {
@@ -290,6 +333,7 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24)
         "fields": catalog, "map_fields": map_keys, "point_fields": point_keys,
         "places": PLACES, "comparators": cmp_info,
         "longrange": "longrange.json" if do_longrange else None,
+        "sub": sub_meta if sub_meta and sub_meta["times"] else None,
     }
     (tmp / "meta.json").write_text(json.dumps(meta, separators=(",", ":")))
 
@@ -321,12 +365,13 @@ def main():
     ap.add_argument("--hours", type=int, default=48)
     ap.add_argument("--no-compare", action="store_true")
     ap.add_argument("--no-longrange", action="store_true")
+    ap.add_argument("--no-sub", action="store_true", help="skip the 15-minute dawn/dusk data")
     ap.add_argument("--workers", type=int, default=24)
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     load_env()
-    build(a.out, a.hours, not a.no_compare, not a.no_longrange, a.workers)
+    build(a.out, a.hours, not a.no_compare, not a.no_longrange, a.workers, not a.no_sub)
 
 
 if __name__ == "__main__":
