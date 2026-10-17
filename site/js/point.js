@@ -138,8 +138,11 @@
       WX.times = pts.map(p => p.q); WX.t = hourToPt(t);
       const pu = pts.map(p => p.u), pv = pts.map(p => p.v);
       try {
-        const c = WX.charts.panel(body, { title: `Surface wind (10 m)${sp ? ' · every 15 min around sunrise/sunset, hourly otherwise' : ''}`, unit: U.windU(), zeroBase: true, height: 150,
-          timeAxis: true, tipTime: d => (pts.find(p => +p.q === +d) || {}).q15 ? WX.time.fullMin(d) : WX.time.full(d),
+        const c = WX.charts.panel(body, { title: `Surface wind (10 m)${sp ? ' · 15-min steps in the shaded sunrise/sunset periods, hourly otherwise' : ''}`, unit: U.windU(), zeroBase: true, height: 150,
+          timeAxis: true,
+          bands: sp ? WX.meta.sub.spans.map(s => ({ from: new Date(s.start), to: new Date(s.end) })) : [],
+          bandLegend: sp ? '15-min period' : null,
+          tipTime: d => (pts.find(p => +p.q === +d) || {}).q15 ? WX.time.fullMin(d) : WX.time.full(d),
           onPick: i => { const hh = pts[i].h; if (hh >= 0) WX.setTime(hh); },
           series: [{ name: 'Sustained', color: css('--s1'), values: pts.map(p => U.wind(Math.hypot(p.u, p.v))) },
             { name: 'Gust', color: css('--s2'), values: pts.map(p => U.wind(p.gu)), width: 1.5, dash: '4 3' }],

@@ -37,7 +37,8 @@
     // legend for >= 2 series
     if (opts.series.length >= 2) {
       const lg = document.createElement('div'); lg.className = 'legend-row';
-      lg.innerHTML = opts.series.map(s => `<span><span class="sw ${s.type === 'bar' ? 'box' : ''}" style="background:${s.color}"></span>${WX.esc(s.name)}</span>`).join('');
+      lg.innerHTML = opts.series.map(s => `<span><span class="sw ${s.type === 'bar' ? 'box' : ''}" style="background:${s.color}"></span>${WX.esc(s.name)}</span>`).join('')
+        + (opts.bandLegend ? `<span><span class="sw box" style="background:${css('--s4')};opacity:.35"></span>${WX.esc(opts.bandLegend)}</span>` : '');
       container.appendChild(lg);
     }
     container.appendChild(wrap);
@@ -82,6 +83,14 @@
         el('rect', { x: x(t) - pxPerHour / 2, width: pxPerHour, y: m.t, height: H - m.t - m.b, fill: css('--text-primary'), opacity: 0.035 }, g);
       }
     });
+    // highlighted periods, e.g. the 15-minute dawn/dusk windows: [{from: Date, to: Date}]
+    for (const b of opts.bands || []) {
+      const ms = d => Math.min(Math.max(+d, t0ms), t0ms + spanMs);
+      const xa = opts.timeAxis ? m.l + (W - m.l - m.r) * (ms(b.from) - t0ms) / spanMs : null;
+      const xb = opts.timeAxis ? m.l + (W - m.l - m.r) * (ms(b.to) - t0ms) / spanMs : null;
+      if (xa === null || xb - xa < 1) continue;
+      el('rect', { x: xa, width: xb - xa, y: m.t, height: H - m.t - m.b, fill: b.color || css('--s4'), opacity: b.opacity || 0.14 }, g);
+    }
     if (opts.unit) {
       const tx = el('text', { x: 4, y: m.t + 9, 'font-size': 10, fill: css('--text-muted') }, g); tx.textContent = opts.unit;
     }
