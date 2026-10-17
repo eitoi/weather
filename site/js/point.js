@@ -123,12 +123,31 @@
       <div style="margin-top:6px"><b>Precipitation:</b> ${esc(precipSummary())}</div></div>`;
     body.appendChild(head);
 
-    const u10 = g('U10'), v10 = g('V10');
-    charts.push(WX.charts.panel(body, { title: 'Surface wind (10 m)', unit: U.windU(), zeroBase: true, height: 140,
-      series: [{ name: 'Sustained', color: css('--s1'), values: Array.from(u10, (u, i) => U.wind(Math.hypot(u, v10[i]))) },
-        { name: 'Gust', color: css('--s2'), values: Array.from(g('GUST'), U.wind), width: 1.5, dash: '4 3' }],
-      arrows: { u: u10, v: v10 },
-      tipExtra: i => `<div>From ${WX.dirName(WX.wdir(u10[i], v10[i]))} ${fmt(WX.wdir(u10[i], v10[i]))}°</div>` }));
+    // Surface wind on a real time axis: hourly, every 15 minutes inside the dawn/dusk windows
+    const u10 = g('U10'), v10 = g('V10'), gust = g('GUST');
+    const pts = [];
+    const inWin = q => sp && WX.meta.sub.spans.some(s => q >= new Date(s.start) && q <= new Date(s.end));
+    for (let h = 0; h < T(); h++) if (!inWin(WX.times[h])) pts.push({ q: WX.times[h], u: u10[h], v: v10[h], gu: gust[h], h });
+    if (sp) WX.subTimes.forEach((q, i) => pts.push({ q, u: sp.get('U10')[i], v: sp.get('V10')[i], gu: sp.get('GUST')[i], q15: true,
+      h: WX.times.findIndex(d => +d === +q) }));
+    pts.sort((a, b) => a.q - b.q);
+    const hourly = WX.times.slice();
+    const hourToPt = h => { let b = -1; pts.forEach((p, i) => { if (b < 0 || Math.abs(p.q - hourly[h]) < Math.abs(pts[b].q - hourly[h])) b = i; }); return b; };
+    {
+      const saveTimes = WX.times, saveT = WX.t;
+      WX.times = pts.map(p => p.q); WX.t = hourToPt(t);
+      const pu = pts.map(p => p.u), pv = pts.map(p => p.v);
+      try {
+        const c = WX.charts.panel(body, { title: `Surface wind (10 m)${sp ? ' · every 15 min around sunrise/sunset, hourly otherwise' : ''}`, unit: U.windU(), zeroBase: true, height: 150,
+          timeAxis: true, tipTime: d => (pts.find(p => +p.q === +d) || {}).q15 ? WX.time.fullMin(d) : WX.time.full(d),
+          onPick: i => { const hh = pts[i].h; if (hh >= 0) WX.setTime(hh); },
+          series: [{ name: 'Sustained', color: css('--s1'), values: pts.map(p => U.wind(Math.hypot(p.u, p.v))) },
+            { name: 'Gust', color: css('--s2'), values: pts.map(p => U.wind(p.gu)), width: 1.5, dash: '4 3' }],
+          arrows: { u: pu, v: pv },
+          tipExtra: i => `<div>From ${WX.dirName(WX.wdir(pu[i], pv[i]))} ${fmt(WX.wdir(pu[i], pv[i]))}°${pts[i].q15 ? ' · 15-min' : ''}</div>` });
+        charts.push({ setSel: hh => c.setSel(hourToPt(hh)), destroy: c.destroy });
+      } finally { WX.times = saveTimes; WX.t = saveT; }
+    }
     const below = cell.elev > FT10K;
     charts.push(WX.charts.panel(body, { title: `10,000 ft wind${U.imperial() ? '' : ' (3,048 m)'}${below ? ' (below model terrain here)' : ''}`, unit: U.windU(), zeroBase: true, height: 130,
       series: [{ name: '10,000 ft', color: css('--s7'), values: Array.from(up.u, (u, i) => U.wind(Math.hypot(u, up.v[i]))) }],

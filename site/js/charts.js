@@ -27,7 +27,8 @@
      opts: {title, height, series:[{name, color, values, type:'line'|'bar'|'step', width, dash, fmt}],
             unit, yMin, yMax, zeroBase, arrows:{u:[], v:[]}, dec, tipExtra(t)} */
   function panel(container, opts) {
-    const T = WX.times.length;
+    const times = WX.times.slice();   // this chart's own time axis (callers may swap WX.times temporarily)
+    const T = times.length;
     const wrap = document.createElement('div'); wrap.className = 'chart';
     if (opts.title) {
       const h = document.createElement('div'); h.className = 'chart-title';
@@ -43,7 +44,10 @@
     const W = Math.max(300, container.clientWidth || 600), H = opts.height || 130;
     const m = { l: 44, r: 10, t: 8, b: opts.noX ? 6 : 20 };
     const svg = el('svg', { viewBox: `0 0 ${W} ${H}`, height: H, role: 'img', 'aria-label': opts.title || '' }, wrap);
-    const x = t => m.l + (W - m.l - m.r) * (T === 1 ? 0.5 : t / (T - 1));
+    // x by index (evenly spaced), or by real time when the series mixes hourly and 15-minute steps
+    const t0ms = +times[0], spanMs = Math.max(1, +times[T - 1] - t0ms);
+    const x = opts.timeAxis ? t => m.l + (W - m.l - m.r) * ((+times[t] - t0ms) / spanMs)
+      : t => m.l + (W - m.l - m.r) * (T === 1 ? 0.5 : t / (T - 1));
     let lo = Infinity, hi = -Infinity;
     for (const s of opts.series) for (const v of s.values) if (isFinite(v)) { lo = Math.min(lo, v); hi = Math.max(hi, v); }
     if (!isFinite(lo)) { lo = 0; hi = 1; }
@@ -62,9 +66,10 @@
       tx.textContent = fmt(v, opts.tickDec ?? (Math.abs(hi - lo) < 3 ? 1 : 0));
     }
     // days; hour labels only when there is room for them
-    const pxPerHour = (W - m.l - m.r) / Math.max(1, T - 1);
+    const pxPerHour = opts.timeAxis ? (W - m.l - m.r) / (spanMs / 3.6e6) : (W - m.l - m.r) / Math.max(1, T - 1);
     const labelEvery = pxPerHour * 6 >= 34 ? 6 : pxPerHour * 12 >= 34 ? 12 : 24;
-    WX.times.forEach((d, t) => {
+    times.forEach((d, t) => {
+      if (opts.timeAxis && d.getUTCMinutes() !== 0) return;   // grid, labels and shading on the hour only
       const h = WX.time.localHour(d);
       if (h === 0) el('line', { x1: x(t), x2: x(t), y1: m.t, y2: H - m.b, stroke: css('--border'), 'stroke-width': 1 }, g);
       const lbl = opts.xLabel ? opts.xLabel(d, t) : (h % labelEvery === 0 ? (h === 0 ? WX.time.day(d) : WX.time.hour(d)) : null);
@@ -74,7 +79,7 @@
       }
       // night shading
       if (opts.night !== false && (h >= 20 || h < 7)) {
-        el('rect', { x: x(t) - (W - m.l - m.r) / (T - 1) / 2, width: (W - m.l - m.r) / (T - 1), y: m.t, height: H - m.t - m.b, fill: css('--text-primary'), opacity: 0.035 }, g);
+        el('rect', { x: x(t) - pxPerHour / 2, width: pxPerHour, y: m.t, height: H - m.t - m.b, fill: css('--text-primary'), opacity: 0.035 }, g);
       }
     });
     if (opts.unit) {
@@ -107,9 +112,11 @@
     }
     // wind direction arrows along the top
     if (opts.arrows) {
-      const stride = Math.max(1, Math.ceil(18 / ((W - m.l - m.r) / T)));
+      const stride = opts.timeAxis ? 1 : Math.max(1, Math.ceil(18 / ((W - m.l - m.r) / T)));
+      let lastX = -1e9;
       for (let t = 0; t < T; t += stride) {
         const u = opts.arrows.u[t], v = opts.arrows.v[t]; if (!isFinite(u)) continue;
+        if (opts.timeAxis) { if (x(t) - lastX < 18) continue; lastX = x(t); }
         const s = Math.hypot(u, v); if (s < 0.3) continue;
         const dx = u / s, dy = -v / s, cx = x(t), cy = m.t + 7, l = 6;
         el('path', { d: `M${cx - dx * l},${cy - dy * l} L${cx + dx * l},${cy + dy * l} M${cx + dx * l},${cy + dy * l} l${-dx * 4 - dy * 3},${-dy * 4 + dx * 3} M${cx + dx * l},${cy + dy * l} l${-dx * 4 + dy * 3},${-dy * 4 - dx * 3}`, stroke: css('--text-secondary'), 'stroke-width': 1.4, fill: 'none', 'stroke-linecap': 'round' }, svg);
@@ -132,12 +139,16 @@
     const tToX = (ev) => {
       const r = svg.getBoundingClientRect();
       const px = (ev.clientX - r.left) * W / r.width;
+      if (opts.timeAxis) {
+        let best = 0; for (let t = 1; t < T; t++) if (Math.abs(x(t) - px) < Math.abs(x(best) - px)) best = t;
+        return best;
+      }
       return Math.max(0, Math.min(T - 1, Math.round((px - m.l) / (W - m.l - m.r) * (T - 1))));
     };
     const showTip = (ev) => {
       const t = tToX(ev); setHover(t);
       const rows = opts.series.filter(s => s.type !== 'band').map(s => `<div><span class="sw ${s.type === 'bar' ? 'box' : ''}" style="display:inline-block;width:10px;height:${s.type === 'bar' ? 10 : 3}px;background:${s.color};margin-right:5px;vertical-align:middle"></span>${WX.esc(s.name)}: <b>${s.fmt ? s.fmt(s.values[t], t) : fmt(s.values[t], opts.dec ?? 0)}</b> ${opts.unit || ''}</div>`).join('');
-      tip.innerHTML = `<div class="t">${(opts.tipTime || WX.time.full)(WX.times[t])}</div>${rows}${opts.tipExtra ? opts.tipExtra(t) : ''}`;
+      tip.innerHTML = `<div class="t">${(opts.tipTime || WX.time.full)(times[t])}</div>${rows}${opts.tipExtra ? opts.tipExtra(t) : ''}`;
       tip.classList.remove('hidden');
       const r = wrap.getBoundingClientRect(), px = ev.clientX - r.left;
       tip.style.left = Math.min(Math.max(0, px + 12), r.width - tip.offsetWidth - 4) + 'px';
@@ -147,7 +158,8 @@
     svg.addEventListener('pointermove', showTip);
     svg.addEventListener('pointerdown', showTip);
     svg.addEventListener('pointerleave', () => setHover(null));
-    if (!opts.noClick) svg.addEventListener('click', ev => WX.setTime(tToX(ev)));
+    if (opts.onPick) svg.addEventListener('click', ev => opts.onPick(tToX(ev)));
+    else if (!opts.noClick) svg.addEventListener('click', ev => WX.setTime(tToX(ev)));
     return { setSel, destroy: () => hoverSubs.delete(onHover) };
   }
 
