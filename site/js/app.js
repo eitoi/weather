@@ -579,20 +579,22 @@
   /* ---------------------------------------------------------------- views & settings */
   function setView(v) {
     WX.view = v;
-    const tab = v === 'avy' ? 'avy' : 'wx';
+    const tab = v === 'avy' || v === 'agent' ? v : 'wx';
     if (tab === 'wx') WX.wxView = v;
     document.querySelectorAll('#mainTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
     document.querySelectorAll('#wxTabs button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
-    document.body.classList.toggle('tab-avy', tab === 'avy');
+    document.body.classList.toggle('tab-other', tab !== 'wx');
     document.getElementById('mapView').classList.toggle('active', v === 'map');
     document.getElementById('outlookView').classList.toggle('active', v === 'outlook');
     document.getElementById('avyView').classList.toggle('active', v === 'avy');
+    document.getElementById('agentView').classList.toggle('active', v === 'agent');
     if (v === 'map') setTimeout(() => map.invalidateSize(), 0);
     if (v === 'outlook') WX.emit('showOutlook');
     if (v === 'avy') WX.emit('showAvy');
+    if (v === 'agent') WX.emit('showAgent');
     saveHash();
   }
-  document.querySelectorAll('#mainTabs button').forEach(b => (b.onclick = () => setView(b.dataset.tab === 'avy' ? 'avy' : WX.wxView || 'map')));
+  document.querySelectorAll('#mainTabs button').forEach(b => (b.onclick = () => setView(b.dataset.tab === 'wx' ? WX.wxView || 'map' : b.dataset.tab)));
   document.querySelectorAll('#wxTabs button').forEach(b => (b.onclick = () => setView(b.dataset.view)));
 
   const dlg = document.getElementById('settings');
@@ -603,6 +605,7 @@
     document.getElementById('setBase').value = WX.prefs.base;
     document.getElementById('setToken').value = WX.prefs.ghToken || '';
     document.getElementById('setRepo').value = WX.prefs.ghRepo || repoGuess();
+    document.getElementById('setAgent').value = WX.prefs.agentUrl || '';
     dlg.showModal();
   };
   dlg.addEventListener('close', () => {
@@ -610,6 +613,7 @@
     const top = +document.getElementById('setTop').value, b = document.getElementById('setBase').value;
     WX.prefs.ghToken = document.getElementById('setToken').value.trim();
     WX.prefs.ghRepo = document.getElementById('setRepo').value.trim();
+    WX.prefs.agentUrl = document.getElementById('setAgent').value.trim().replace(/\/+$/, '');
     const changed = u !== WX.prefs.units || w !== WX.prefs.wind || top !== WX.prefs.top;
     WX.prefs.units = u; WX.prefs.wind = w; WX.prefs.top = top;
     if (b !== WX.prefs.base) { WX.prefs.base = b; setBase(); WX.emit('base'); }
@@ -694,7 +698,8 @@
     } catch (e) {
       document.getElementById('runInfo').textContent = 'No forecast data yet: run the ingest (see README)';
       console.error(e);
-      if (new URLSearchParams(location.hash.slice(1)).get('v') === 'avy') setView('avy');
+      const v = new URLSearchParams(location.hash.slice(1)).get('v');
+      if (v === 'avy' || v === 'agent') setView(v);
       return;
     }
     buildCorners();
@@ -713,7 +718,7 @@
     setInterval(checkForUpdate, 5 * 60e3);
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkForUpdate(); });
     if (p.get('p')) { const [la, lo, ...nm] = p.get('p').split(','); WX.selectPoint(+la, +lo, nm.join(',') || null); }
-    if (p.get('v') === 'outlook' || p.get('v') === 'avy') setView(p.get('v'));
+    if (['outlook', 'avy', 'agent'].includes(p.get('v'))) setView(p.get('v'));
     WX.emit('ready');
   }
   boot();

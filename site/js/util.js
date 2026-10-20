@@ -12,7 +12,7 @@ const WX = window.WX = {
 };
 
 function loadPrefs() {
-  const d = { units: 'imperial', wind: 'mph', top: 18000, base: 'topo', numbers: true, arrows: true, opacity: {}, launches: true, spots: '75', fit: false, ghToken: '', ghRepo: '' };
+  const d = { units: 'imperial', wind: 'mph', top: 18000, base: 'topo', numbers: true, arrows: true, opacity: {}, launches: true, spots: '75', fit: false, ghToken: '', ghRepo: '', agentUrl: '' };
   try { return Object.assign(d, JSON.parse(localStorage.getItem('wx-prefs') || '{}')); } catch (e) { return d; }
 }
 function savePrefs() { try { localStorage.setItem('wx-prefs', JSON.stringify(WX.prefs)); } catch (e) { /* private mode */ } }

@@ -53,6 +53,16 @@ HRRR new snow (past 7 days and next 24 hours), wind loading, rain on snow, warmi
 toward SNOTEL measurements where stations exist. The estimate is a rough guide, not a forecast. Tap a range
 for its bands, the reasons behind the rating, the model weather and nearby SNOTEL stations.
 
+**Agent**: a chat with your WeatherAgent (the Claude agent that answers forecasting questions from live HRRR,
+NWS observations, your Ecowitt station, the SLC forecast discussion and two years of station history). The agent
+itself, its API key and its database stay on your Mac. Start its web server from the WeatherAgent folder with
+`.venv/bin/python web.py` (or double-click `Agent Web.command`); the tab talks to it at `http://localhost:8787`.
+From another device, put the Mac behind an HTTPS tunnel (for example `tailscale serve 8787`) and paste that
+address in **Settings → Agent address**, then add the site's address to `web_origins` in the agent's
+`config.json` if it isn't `https://eitoi.github.io`.
+
+The site's top tabs are **Weather** (Map and Outlook), **Avalanche** and **Agent**.
+
 ## Data sources
 
 | Source | Use | How |
