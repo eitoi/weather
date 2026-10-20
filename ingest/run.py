@@ -1,6 +1,6 @@
 """Build the static forecast dataset for the web app.
 
-    python -m ingest.run [--out site/data] [--hours N] [--no-compare] [--no-longrange]
+    python -m ingest.run [--out site/data] [--hours N] [--no-compare] [--no-longrange] [--no-avalanche]
 
 Output (all static files, served as-is by any web server / GitHub Pages):
   meta.json                 run info, time axis, field catalog, places
@@ -10,6 +10,7 @@ Output (all static files, served as-is by any web server / GitHub Pages):
   sub/<field>.bin           int16 [step][ny][nx]   15-minute surface data around sunrise/sunset (meta.sub)
   subpts/<j>_<i>.bin        int16 [field][step] for one grid point
   longrange.json            multi-model extended outlook, NWS AFD, summary
+  avy/avy.json              western avalanche danger by range (see ingest/avalanche.py)
 """
 import argparse
 import datetime as dt
@@ -127,7 +128,7 @@ def ensure_crop(crop, run):
 
 # ---------------------------------------------------------------- main build
 
-def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24, do_sub=True):
+def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24, do_sub=True, do_avalanche=True):
     t_start = time.time()
     R, S = H.latest_runs()
     log.info("newest HRRR run %s, newest 48-h run %s", R, S)
@@ -348,6 +349,15 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24,
             if old.exists():
                 shutil.copy(old, tmp / "longrange.json")
 
+    if do_avalanche:
+        from . import avalanche
+        try:
+            avalanche.build(tmp / "avy", workers=min(workers, 16))
+        except Exception as e:  # noqa
+            log.exception("avalanche build failed: %s", e)
+            if (out_dir / "avy").exists():
+                shutil.copytree(out_dir / "avy", tmp / "avy")
+
     old = out_dir.parent / (out_dir.name + ".old")
     shutil.rmtree(old, ignore_errors=True)
     if out_dir.exists():
@@ -366,12 +376,13 @@ def main():
     ap.add_argument("--no-compare", action="store_true")
     ap.add_argument("--no-longrange", action="store_true")
     ap.add_argument("--no-sub", action="store_true", help="skip the 15-minute dawn/dusk data")
+    ap.add_argument("--no-avalanche", action="store_true")
     ap.add_argument("--workers", type=int, default=24)
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     load_env()
-    build(a.out, a.hours, not a.no_compare, not a.no_longrange, a.workers, not a.no_sub)
+    build(a.out, a.hours, not a.no_compare, not a.no_longrange, a.workers, not a.no_sub, not a.no_avalanche)
 
 
 if __name__ == "__main__":

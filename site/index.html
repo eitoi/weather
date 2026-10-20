@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Wasatch Wx</title>
-<meta name="description" content="HRRR-based mountain forecast for the Wasatch, Mount Wire to Mount Nebo">
+<meta name="description" content="HRRR-based mountain forecast for the Wasatch, plus an avalanche danger map for ten western states">
 <meta name="theme-color" content="#1a1a19">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -14,13 +14,18 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <div id="app">
   <header id="topbar">
     <div class="brand">Wasatch&nbsp;Wx</div>
-    <nav class="tabs" id="mainTabs">
+    <nav class="tabs" id="mainTabs" aria-label="Site">
+      <button data-tab="wx" class="active">Weather</button>
+      <button data-tab="avy">Avalanche</button>
+      <button data-tab="agent">Agent</button>
+    </nav>
+    <nav class="subtabs" id="wxTabs" aria-label="Weather view">
       <button data-view="map" class="active">Map</button>
       <button data-view="outlook">Outlook</button>
     </nav>
@@ -88,6 +93,39 @@
     <div id="outlookBody" class="outlook"></div>
   </main>
 
+  <main id="agentView" class="view">
+    <div class="agent">
+      <div class="agent-head">
+        <div><b>Weather agent</b> <span id="agentStatus" class="muted small">checking…</span></div>
+        <button id="agentNew" class="agent-btn" type="button">New chat</button>
+      </div>
+      <div id="agentLog" class="agent-log" aria-live="polite"></div>
+      <form id="agentForm" class="agent-form">
+        <textarea id="agentQ" rows="2" placeholder="Ask about the wind, or tell it what really happened"></textarea>
+        <button id="agentSend" class="agent-btn primary" type="submit">Ask</button>
+      </form>
+    </div>
+  </main>
+
+  <main id="avyView" class="view">
+    <div id="avyMap"></div>
+    <div id="avyBar" class="panel">
+      <div class="seg" id="avyMode" role="group" aria-label="Elevation band">
+        <button data-m="max">Highest</button><button data-m="3">Above TL</button><button data-m="2">Near TL</button><button data-m="1">Below TL</button>
+      </div>
+      <div class="toggles">
+        <label><input type="checkbox" id="avyZones"> Center zones</label>
+        <label><input type="checkbox" id="avySno"> SNOTEL</label>
+      </div>
+    </div>
+    <div id="avyLegend" class="panel"></div>
+    <div id="avyHover" class="panel hidden"></div>
+    <section id="avyPanel" class="sheet" aria-label="Avalanche danger">
+      <div class="sheet-grip" id="avyGrip"></div>
+      <div id="avyBody" class="sheet-body"><p class="muted">Loading avalanche data…</p></div>
+    </section>
+  </main>
+
   <dialog id="settings">
     <form method="dialog">
       <h3>Settings</h3>
@@ -103,20 +141,23 @@
       <label>Basemap
         <select id="setBase"><option value="topo">Topographic</option><option value="relief">Shaded relief</option><option value="sat">Satellite</option><option value="otm">OpenTopoMap</option></select>
       </label>
+      <label>Agent address <input type="text" id="setAgent" placeholder="http://localhost:8787" autocomplete="off" style="width:180px"></label>
       <label>GitHub token <input type="password" id="setToken" placeholder="optional" autocomplete="off" style="width:180px"></label>
       <label>Repository <input type="text" id="setRepo" placeholder="owner/repo" autocomplete="off" style="width:180px"></label>
       <p class="muted small">The forecast rebuilds by itself every hour. A token lets the ↻ button start a build right away. Use a fine-grained token with only <b>Actions: Read and write</b> on this repository; it is stored only in this browser.</p>
-      <p class="muted small">Data: NOAA HRRR (3 km, every 25 mb), NAM 3 km nest, RAP 13 km, earlier HRRR runs; long range from ECMWF, GFS, ICON, GEM, UKMO and GEFS/ECMWF ensembles via Open-Meteo; NWS Salt Lake City discussion.</p>
+      <p class="muted small">Data: NOAA HRRR (3 km, every 25 mb), NAM 3 km nest, RAP 13 km, earlier HRRR runs; long range from ECMWF, GFS, ICON, GEM, UKMO and GEFS/ECMWF ensembles via Open-Meteo; NWS Salt Lake City discussion. Avalanche tab: avalanche center ratings from avalanche.org, NRCS SNOTEL, and an HRRR-based estimate elsewhere.</p>
       <menu><button value="ok">Done</button></menu>
     </form>
   </dialog>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="js/util.js?v=11"></script>
-<script src="js/charts.js?v=11"></script>
-<script src="js/point.js?v=11"></script>
-<script src="js/outlook.js?v=11"></script>
-<script src="js/launches.js?v=11"></script>
-<script src="js/app.js?v=11"></script>
+<script src="js/util.js?v=12"></script>
+<script src="js/charts.js?v=12"></script>
+<script src="js/point.js?v=12"></script>
+<script src="js/outlook.js?v=12"></script>
+<script src="js/launches.js?v=12"></script>
+<script src="js/app.js?v=12"></script>
+<script src="js/avalanche.js?v=12"></script>
+<script src="js/agent.js?v=12"></script>
 </body>
 </html>

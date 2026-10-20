@@ -45,6 +45,24 @@ fronts. It is built from the ECMWF, GFS, ICON, GEM and UKMO deterministic runs, 
 ensembles, cold-front detection (700 mb cooling plus a wind veer or pressure trough), and the latest NWS
 Salt Lake City Area Forecast Discussion. It also shows per-model charts and tables for six zones.
 
+**Avalanche** (about 150 mountain ranges in WA, OR, CA, NV, ID, MT, WY, UT, CO and NM): danger on the
+five-level North American scale for each range and elevation band (above, near and below treeline), plus
+"minimal snow" where there is not enough snow to matter. When an avalanche center has issued a rating, the
+map shows the official rating and links to the forecast. Everywhere else it shows an estimate scored from
+HRRR new snow (past 7 days and next 24 hours), wind loading, rain on snow, warming and snow depth, pulled
+toward SNOTEL measurements where stations exist. The estimate is a rough guide, not a forecast. Tap a range
+for its bands, the reasons behind the rating, the model weather and nearby SNOTEL stations.
+
+**Agent**: a chat with your WeatherAgent (the Claude agent that answers forecasting questions from live HRRR,
+NWS observations, your Ecowitt station, the SLC forecast discussion and two years of station history). The agent
+itself, its API key and its database stay on your Mac. Start its web server from the WeatherAgent folder with
+`.venv/bin/python web.py` (or double-click `Agent Web.command`); the tab talks to it at `http://localhost:8787`.
+From another device, put the Mac behind an HTTPS tunnel (for example `tailscale serve 8787`) and paste that
+address in **Settings → Agent address**, then add the site's address to `web_origins` in the agent's
+`config.json` if it isn't `https://eitoi.github.io`.
+
+The site's top tabs are **Weather** (Map and Outlook), **Avalanche** and **Agent**.
+
 ## Data sources
 
 | Source | Use | How |
@@ -55,6 +73,9 @@ Salt Lake City Area Forecast Discussion. It also shows per-model charts and tabl
 | Previous HRRR runs | Confidence score (time-lagged ensemble) | AWS |
 | ECMWF / GFS / ICON / GEM / UKMO, GEFS and ECMWF ensembles | Outlook | Open-Meteo API |
 | NWS SLC Area Forecast Discussion | Outlook | api.weather.gov |
+| Avalanche center ratings and zones | Avalanche | api.avalanche.org map layer (last good copy is reused for up to 48 h) |
+| NRCS SNOTEL snow depth and SWE | Avalanche | AWDB REST API |
+| HRRR 6-hourly snowfall, precip, temperature and 80 m wind for the past 7 days, f00 snow depth | Avalanche | AWS, cached in `cache/avy/` for 9 days |
 
 The time axis starts with the newest complete HRRR run. When that run only reaches 18 h, it continues with
 the newest 48-hour run, so you always get about 48 hours. The label under the slider shows which run and
@@ -125,9 +146,14 @@ ingest/      Python data pipeline (python -m ingest.run)
   compare.py   NAM/RAP download and the confidence score
   longrange.py Open-Meteo multi-model + ensembles, front detection, NWS AFD, summary
   subhourly.py 15-minute HRRR surface data for the sunrise/sunset windows
-  run.py       orchestration and static-file output
+  run.py       orchestration and static-file output (--no-avalanche skips the avalanche build)
+  avalanche.py avalanche danger: HRRR history, SNOTEL, avalanche.org zones, scoring (python -m ingest.avalanche)
+  avy_ranges.py  range crest lines and their avalanche center zones
+  avy_static.npz mountain cells (zoom-6 Web Mercator grid), elevation bands, nearest HRRR point
+tools/make_avy_static.py  one-off: rebuilds avy_static.npz and site/img/avy-grid.png from DEM tiles
 site/        static web app (no build step)
-  data/        generated: meta.json, grid.bin, maps/*.bin, pts/*.bin, longrange.json
+  data/        generated: meta.json, grid.bin, maps/*.bin, pts/*.bin, longrange.json, avy/avy.json
+  img/avy-grid.png  range id (red) and elevation band (green) for each mountain cell
 cache/       downloaded HRRR fields (reused between runs; pruned after 30 h)
 ```
 

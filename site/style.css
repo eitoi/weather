@@ -39,7 +39,7 @@
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text-primary);
   font: 14px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
   -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
-button, select, input { font: inherit; color: inherit; }
+button, select, input, textarea { font: inherit; color: inherit; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 .hidden { display: none !important; }
 .muted { color: var(--text-muted); }
@@ -54,6 +54,11 @@ button, select, input { font: inherit; color: inherit; }
 .tabs button, .subtabs button { border: 0; background: transparent; padding: 6px 10px; border-radius: 8px; cursor: pointer;
   color: var(--text-secondary); white-space: nowrap; }
 .tabs button.active, .subtabs button.active { background: var(--surface-2); color: var(--text-primary); font-weight: 600; }
+#mainTabs { background: var(--surface-2); border-radius: 10px; padding: 2px; }
+#mainTabs button.active { background: var(--surface-1); box-shadow: 0 1px 2px #0002; }
+#wxTabs { padding-left: 10px; border-left: 1px solid var(--border); }
+body.tab-other #wxTabs, body.tab-other #runInfo, body.tab-other #updateBtn { display: none; }
+body.tab-other #settingsBtn { margin-left: auto; }
 .runinfo { margin-left: auto; color: var(--text-muted); font-size: 12px; text-align: right; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .icon-btn { border: 1px solid var(--border); background: var(--surface-1); border-radius: 8px; min-width: 34px; height: 34px;
@@ -171,6 +176,13 @@ dialog#settings menu button { padding: 6px 16px; border-radius: 8px; border: 0; 
   .brand { display: none; }
   #topbar { gap: 6px; padding-left: 8px; padding-right: 8px; }
   .runinfo { font-size: 11px; }
+  /* two rows: site tabs + buttons, then Map/Outlook + run info */
+  #topbar { flex-wrap: wrap; row-gap: 4px; }
+  #mainTabs button { padding: 5px 9px; }
+  #updateBtn, body.tab-other #settingsBtn { margin-left: auto; }
+  #wxTabs { order: 5; border-left: 0; padding-left: 0; }
+  #wxTabs button { padding: 4px 9px; }
+  .runinfo { order: 6; flex: 1; min-width: 0; margin-left: 0; }
   #layerBar { top: 8px; left: 8px; right: 8px; max-width: none; padding: 6px; }
   #layerBar select { flex: 1; min-width: 0; max-width: none; }
   .toggles { width: 100%; justify-content: flex-start; flex-wrap: wrap; row-gap: 4px; font-size: 12px; }
@@ -196,3 +208,66 @@ dialog#settings input[type=text], dialog#settings input[type=password] { padding
 @media (max-width: 760px) { .mode-seg button { padding: 4px 6px; } #timeBar { flex-wrap: wrap; } }
 table.data tr.q15 td { background: color-mix(in srgb, var(--s4) 9%, var(--surface-1)); }
 table.data tr.q15.sel td, table.data tr.sel td { background: color-mix(in srgb, var(--accent) 16%, var(--surface-1)); }
+/* avalanche */
+#avyMap { position: absolute; inset: 0; background: var(--surface-2); }
+#avyBar { top: 10px; left: 10px; padding: 8px; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; max-width: calc(100% - 20px); }
+#avyBar .seg button { font-size: 12px; }
+#avyLegend { left: 10px; bottom: calc(10px + var(--safe-bottom)); padding: 8px 10px; font-size: 11px; color: var(--text-secondary); }
+#avyLegend .lg-title { font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 12px; }
+.avy-lg { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
+.avy-lg i { width: 14px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid #0003; }
+.avy-lg i.dash { border: 1.5px dashed var(--text-secondary); background: transparent; }
+.avy-lg i.dot { width: 10px; height: 10px; border-radius: 50%; background: #6da7ec; border-color: #123; }
+#avyHover { left: 10px; top: 92px; padding: 6px 10px; font-size: 12px; pointer-events: none; max-width: 340px; }
+#avyPanel { bottom: calc(10px + var(--safe-bottom)); width: min(460px, 42vw); }
+#avyPanel h4 { margin: 14px 0 6px; font-size: 13px; }
+.avy-pill { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 650; white-space: nowrap; border: 1px solid #0002; }
+.avy-pill.none { background: var(--surface-2); color: var(--text-muted); font-weight: 500; }
+.avy-bands { display: grid; gap: 6px; }
+.avy-band { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+.avy-why { margin: 0; padding-left: 18px; }
+.avy-back { padding: 0 10px; font-size: 13px; }
+.avy-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
+.avy-chips button { border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary); border-radius: 999px; padding: 2px 9px; font-size: 12px; cursor: pointer; }
+.avy-chips button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+#avyQ { width: 100%; box-sizing: border-box; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); margin-bottom: 6px; }
+.avy-list button { display: flex; width: 100%; align-items: center; gap: 8px; text-align: left; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--text-primary); padding: 7px 2px; cursor: pointer; font: inherit; font-size: 13px; }
+.avy-list button:hover { background: var(--surface-2); }
+.avy-list i { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 1px solid #0003; }
+.avy-list .nm { flex: 1; min-width: 0; }
+.avy-off { color: var(--accent); font-weight: 600; }
+@media (max-width: 760px) {
+  #avyBar { left: 8px; right: 8px; top: 8px; max-width: none; padding: 6px; }
+  #avyBar .seg { width: 100%; } #avyBar .seg button { flex: 1; padding: 4px 4px; }
+  #avyLegend { display: none; }
+  #avyHover { display: none; }
+  #avyPanel { width: auto; height: 44%; bottom: 0; }
+  #avyPanel.full { height: calc(100% - 4px); }
+  #avyView .leaflet-control-zoom { display: none; }
+}
+#avyMap .leaflet-image-layer { image-rendering: pixelated; }
+
+/* agent */
+#agentView.active { display: flex; }
+.agent { flex: 1; display: flex; flex-direction: column; max-width: 860px; margin: 0 auto; width: 100%; min-height: 0;
+  padding: 10px 16px calc(10px + var(--safe-bottom)); box-sizing: border-box; }
+.agent-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-bottom: 8px; }
+.agent-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 0 10px; }
+.agent-msg { border-radius: 12px; padding: 10px 12px; max-width: 92%; line-height: 1.5; overflow-wrap: anywhere; }
+.agent-msg.you { align-self: flex-end; background: var(--accent); color: #fff; white-space: pre-wrap; }
+.agent-msg.bot { align-self: flex-start; background: var(--surface-1); border: 1px solid var(--border); }
+.agent-msg.bot p { margin: 0 0 8px; } .agent-msg.bot p:last-child { margin-bottom: 0; }
+.agent-msg.bot ul, .agent-msg.bot ol { margin: 0 0 8px; padding-left: 20px; }
+.agent-msg.bot h4 { margin: 10px 0 4px; font-size: 14px; }
+.agent-msg.err { align-self: flex-start; background: color-mix(in srgb, #e5484d 12%, var(--surface-1)); border: 1px solid #e5484d55; }
+.agent-meta { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.agent-meta summary { cursor: pointer; }
+.agent-help { color: var(--text-secondary); font-size: 13px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.agent-help code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+.agent-form { display: flex; gap: 8px; align-items: flex-end; }
+.agent-form textarea { flex: 1; resize: none; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border);
+  background: var(--surface-1); color: var(--text-primary); font-size: 15px; min-height: 42px; max-height: 160px; box-sizing: border-box; }
+.agent-btn { white-space: nowrap; border: 1px solid var(--border); background: var(--surface-1); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+.agent-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 9px 16px; }
+.agent-btn:disabled { opacity: .5; cursor: default; }
+.dot-ok { color: #30a46c; } .dot-off { color: #e5484d; }
