@@ -54,6 +54,11 @@ button, select, input { font: inherit; color: inherit; }
 .tabs button, .subtabs button { border: 0; background: transparent; padding: 6px 10px; border-radius: 8px; cursor: pointer;
   color: var(--text-secondary); white-space: nowrap; }
 .tabs button.active, .subtabs button.active { background: var(--surface-2); color: var(--text-primary); font-weight: 600; }
+#mainTabs { background: var(--surface-2); border-radius: 10px; padding: 2px; }
+#mainTabs button.active { background: var(--surface-1); box-shadow: 0 1px 2px #0002; }
+#wxTabs { padding-left: 10px; border-left: 1px solid var(--border); }
+body.tab-avy #wxTabs, body.tab-avy #runInfo, body.tab-avy #updateBtn { display: none; }
+body.tab-avy #settingsBtn { margin-left: auto; }
 .runinfo { margin-left: auto; color: var(--text-muted); font-size: 12px; text-align: right; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; }
 .icon-btn { border: 1px solid var(--border); background: var(--surface-1); border-radius: 8px; min-width: 34px; height: 34px;
@@ -171,6 +176,8 @@ dialog#settings menu button { padding: 6px 16px; border-radius: 8px; border: 0; 
   .brand { display: none; }
   #topbar { gap: 6px; padding-left: 8px; padding-right: 8px; }
   .runinfo { font-size: 11px; }
+  #mainTabs button, #wxTabs button { padding: 5px 7px; }
+  #wxTabs { padding-left: 4px; }
   #layerBar { top: 8px; left: 8px; right: 8px; max-width: none; padding: 6px; }
   #layerBar select { flex: 1; min-width: 0; max-width: none; }
   .toggles { width: 100%; justify-content: flex-start; flex-wrap: wrap; row-gap: 4px; font-size: 12px; }

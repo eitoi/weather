@@ -579,7 +579,11 @@
   /* ---------------------------------------------------------------- views & settings */
   function setView(v) {
     WX.view = v;
-    document.querySelectorAll('#mainTabs button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+    const tab = v === 'avy' ? 'avy' : 'wx';
+    if (tab === 'wx') WX.wxView = v;
+    document.querySelectorAll('#mainTabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+    document.querySelectorAll('#wxTabs button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+    document.body.classList.toggle('tab-avy', tab === 'avy');
     document.getElementById('mapView').classList.toggle('active', v === 'map');
     document.getElementById('outlookView').classList.toggle('active', v === 'outlook');
     document.getElementById('avyView').classList.toggle('active', v === 'avy');
@@ -588,7 +592,8 @@
     if (v === 'avy') WX.emit('showAvy');
     saveHash();
   }
-  document.querySelectorAll('#mainTabs button').forEach(b => (b.onclick = () => setView(b.dataset.view)));
+  document.querySelectorAll('#mainTabs button').forEach(b => (b.onclick = () => setView(b.dataset.tab === 'avy' ? 'avy' : WX.wxView || 'map')));
+  document.querySelectorAll('#wxTabs button').forEach(b => (b.onclick = () => setView(b.dataset.view)));
 
   const dlg = document.getElementById('settings');
   document.getElementById('settingsBtn').onclick = () => {

@@ -20,10 +20,13 @@
 <div id="app">
   <header id="topbar">
     <div class="brand">Wasatch&nbsp;Wx</div>
-    <nav class="tabs" id="mainTabs">
+    <nav class="tabs" id="mainTabs" aria-label="Site">
+      <button data-tab="wx" class="active">Weather</button>
+      <button data-tab="avy">Avalanche</button>
+    </nav>
+    <nav class="subtabs" id="wxTabs" aria-label="Weather view">
       <button data-view="map" class="active">Map</button>
       <button data-view="outlook">Outlook</button>
-      <button data-view="avy">Avalanche</button>
     </nav>
     <div class="runinfo" id="runInfo">Loading…</div>
     <button id="updateBtn" class="icon-btn" aria-label="Check for or start a forecast update" title="Update forecast">↻</button>
