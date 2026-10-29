@@ -285,3 +285,16 @@ table.data tr.q15.sel td, table.data tr.sel td { background: color-mix(in srgb, 
 .agent-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; padding: 9px 16px; }
 .agent-btn:disabled { opacity: .5; cursor: default; }
 .dot-ok { color: #30a46c; } .dot-off { color: #e5484d; }
+
+/* login (js/auth.js) */
+#login { position: fixed; inset: 0; z-index: 5000; display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg); }
+#login form { width: 100%; max-width: 320px; padding: 24px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-1); }
+#login .brand { font-weight: 600; font-size: 18px; margin-bottom: 14px; }
+#login label { display: block; margin: 10px 0; color: var(--text-secondary); font-size: 14px; }
+#login input { display: block; width: 100%; box-sizing: border-box; margin-top: 4px; padding: 8px; font-size: 16px; border-radius: 8px;
+  border: 1px solid var(--border); background: var(--surface-2); color: var(--text-primary); }
+#login .login-err { min-height: 1.2em; margin: 6px 0; color: #d64545; font-size: 14px; }
+#login button { width: 100%; padding: 9px; border: 0; border-radius: 8px; background: var(--accent); color: #fff; font-size: 15px; }
+#login button:disabled { opacity: .6; }
+dialog#settings menu { gap: 8px; }
+dialog#settings menu #signOutBtn { background: var(--surface-2); color: var(--text-primary); border: 1px solid var(--border); margin-right: auto; }

@@ -2,6 +2,7 @@
 # downloaded when asked for (each tab's ↻ button, or "Run workflow" with "Fetch HRRR" or "Fetch avalanche data"
 # ticked).
 # Setup: Settings -> Pages -> Source: "GitHub Actions". Optional secret ANTHROPIC_API_KEY for the written outlook.
+# Secrets SITE_USERNAME and SITE_PASSWORD put the site behind a login (the data files are encrypted; see ingest/lock.py).
 name: Update forecast
 
 on:
@@ -58,6 +59,11 @@ jobs:
         run: >-
           python -m ingest.run --workers 32 $([ "$FETCH_HRRR" = true ] || echo --no-hrrr)
           $([ "$FETCH_AVY" = true ] || echo --no-avalanche)
+      - name: Encrypt data behind the site login
+        env:
+          SITE_USERNAME: ${{ secrets.SITE_USERNAME }}
+          SITE_PASSWORD: ${{ secrets.SITE_PASSWORD }}
+        run: python -m ingest.lock
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

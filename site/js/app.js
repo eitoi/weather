@@ -606,8 +606,10 @@
     document.getElementById('setToken').value = WX.prefs.ghToken || '';
     document.getElementById('setRepo').value = WX.prefs.ghRepo || repoGuess();
     document.getElementById('setAgent').value = WX.prefs.agentUrl || '';
+    document.getElementById('signOutBtn').classList.toggle('hidden', !WXAuth.enabled());
     dlg.showModal();
   };
+  document.getElementById('signOutBtn').onclick = () => WXAuth.signOut();
   dlg.addEventListener('close', () => {
     const u = document.getElementById('setUnits').value, w = document.getElementById('setWind').value;
     const top = +document.getElementById('setTop').value, b = document.getElementById('setBase').value;

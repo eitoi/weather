@@ -14,7 +14,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="style.css?v=15">
+<link rel="stylesheet" href="style.css?v=16">
 </head>
 <body>
 <div id="app">
@@ -155,18 +155,19 @@
       <label>Repository <input type="text" id="setRepo" placeholder="owner/repo" autocomplete="off" style="width:180px"></label>
       <p class="muted small">The Outlook and Avalanche data refresh by themselves every hour. The Weather map's HRRR data is fetched only when you press ↻, which needs a token. Use a fine-grained token with only <b>Actions: Read and write</b> on this repository; it is stored only in this browser.</p>
       <p class="muted small">Data: NOAA HRRR (3 km, every 25 mb), NAM 3 km nest, RAP 13 km, earlier HRRR runs; long range from ECMWF, GFS, ICON, GEM, UKMO and GEFS/ECMWF ensembles via Open-Meteo; NWS Salt Lake City discussion. Avalanche tab: avalanche center ratings from avalanche.org, NRCS SNOTEL, and an HRRR-based estimate elsewhere.</p>
-      <menu><button value="ok">Done</button></menu>
+      <menu><button type="button" id="signOutBtn" class="hidden">Sign out</button><button value="ok">Done</button></menu>
     </form>
   </dialog>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="js/util.js?v=15"></script>
-<script src="js/charts.js?v=15"></script>
-<script src="js/point.js?v=15"></script>
-<script src="js/outlook.js?v=15"></script>
-<script src="js/launches.js?v=15"></script>
-<script src="js/app.js?v=15"></script>
-<script src="js/avalanche.js?v=15"></script>
-<script src="js/agent.js?v=15"></script>
+<script src="js/auth.js?v=16"></script>
+<script src="js/util.js?v=16"></script>
+<script src="js/charts.js?v=16"></script>
+<script src="js/point.js?v=16"></script>
+<script src="js/outlook.js?v=16"></script>
+<script src="js/launches.js?v=16"></script>
+<script src="js/app.js?v=16"></script>
+<script src="js/avalanche.js?v=16"></script>
+<script src="js/agent.js?v=16"></script>
 </body>
 </html>
