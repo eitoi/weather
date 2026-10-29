@@ -3,11 +3,14 @@
 # ticked).
 # Setup: Settings -> Pages -> Source: "GitHub Actions". Optional secret ANTHROPIC_API_KEY for the written outlook.
 # Secrets SITE_USERNAME and SITE_PASSWORD put the site behind a login (the data files are encrypted; see ingest/lock.py).
+# The avalanche estimate's season record (history/avy.db: SNOTEL history, HRRR since 1 Oct, the centers' daily problems)
+# is kept as the asset avy.db.gz of the "avy-history" release, updated once a day and on every avalanche fetch.
 name: Update forecast
 
 on:
   schedule:
     - cron: "55 * * * *"      # redeploys the saved builds, which also keeps them in the Actions cache
+    - cron: "20 15 * * *"     # daily: adds the day's SNOTEL, HRRR and center forecasts to the avalanche history
   workflow_dispatch:
     inputs:
       hrrr:
@@ -23,7 +26,8 @@ on:
     paths-ignore: ["README.md", "tools/**"]
 
 permissions:
-  contents: read
+  contents: write             # the avalanche history is saved as a release asset
+
   pages: write
   id-token: write
 
@@ -38,6 +42,10 @@ jobs:
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+      FETCH_AVY: ${{ github.event_name == 'workflow_dispatch' && inputs.avalanche }}
+      AVY_DAILY: ${{ github.event.schedule == '20 15 * * *' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -51,14 +59,38 @@ jobs:
           path: cache
           key: hrrr-cache-${{ github.run_id }}
           restore-keys: hrrr-cache-
+      - name: Restore the avalanche history
+        id: history
+        if: env.FETCH_AVY == 'true' || env.AVY_DAILY == 'true'
+        run: |
+          mkdir -p history
+          if gh release view avy-history >/dev/null 2>&1; then
+            # never start over (and later overwrite the saved file) just because a download failed
+            gh release download avy-history -p avy.db.gz -D history --clobber
+            gunzip -f history/avy.db.gz
+          else
+            echo "No saved avalanche history yet; this run starts it."
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
+      - name: Update the avalanche history
+        if: env.AVY_DAILY == 'true' && steps.history.outputs.ok == 'true'
+        continue-on-error: true
+        run: python -m ingest.avy_history update --budget 1200 --workers 32
       - name: Build forecast data
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FETCH_HRRR: ${{ github.event_name == 'workflow_dispatch' && inputs.hrrr }}
-          FETCH_AVY: ${{ github.event_name == 'workflow_dispatch' && inputs.avalanche }}
         run: >-
           python -m ingest.run --workers 32 $([ "$FETCH_HRRR" = true ] || echo --no-hrrr)
           $([ "$FETCH_AVY" = true ] || echo --no-avalanche)
+      - name: Save the avalanche history
+        if: always() && steps.history.outputs.ok == 'true' && hashFiles('history/avy.db') != ''
+        run: |
+          python -m ingest.avy_history status
+          gzip -kf history/avy.db
+          gh release view avy-history >/dev/null 2>&1 || gh release create avy-history --latest=false \
+            --title "Avalanche history" --notes "history/avy.db for the Avalanche tab (see ingest/avy_history.py). Updated by the Update forecast workflow."
+          gh release upload avy-history history/avy.db.gz --clobber
       - name: Encrypt data behind the site login
         env:
           SITE_USERNAME: ${{ secrets.SITE_USERNAME }}

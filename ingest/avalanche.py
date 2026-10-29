@@ -5,7 +5,9 @@
 Official ratings come from the avalanche.org map layer wherever a center publishes one. Everywhere else
 (and in the off season) each ~2 km mountain cell gets an estimated rating from HRRR snowfall, rain, wind and
 temperature over the past 7 days plus the next 24 hours, with snow depth corrected toward nearby SNOTEL
-stations. Each range and elevation band then takes the 75th-percentile cell score.
+stations. Each range and elevation band then takes the 75th-percentile cell score, raised where the season-long
+weak-layer ledger (avy_layers.py) has a buried persistent layer under a slab. The season record it runs on
+(SNOTEL history, HRRR since 1 Oct, the centers' daily problems) is kept by avy_history.py in history/avy.db.
 
 Static inputs (rebuilt by tools/make_avy_static.py): ingest/avy_static.npz, site/img/avy-grid.png.
 Output: avy.json (ranges, official zones, SNOTEL stations, meta).
@@ -20,17 +22,17 @@ from pathlib import Path
 
 import numpy as np
 
+from . import avy_history as H
+from . import avy_layers as LY
 from . import gribio as G
-from . import hrrr as HR
 from .avy_ranges import RANGES, CENTERS
 
 log = logging.getLogger("avy")
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = Path(__file__).with_name("avy_static.npz")
 CACHE = ROOT / "cache" / "avy"
-STATES = ["WA", "OR", "CA", "NV", "ID", "MT", "WY", "UT", "CO", "NM"]
+STATES = H.STATES
 MAP_LAYER = "https://api.avalanche.org/v2/public/products/map-layer"
-AWDB = "https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1"
 NAMES = ["Minimal snow", "Low", "Moderate", "Considerable", "High", "Extreme"]
 
 
@@ -38,52 +40,13 @@ NAMES = ["Minimal snow", "Low", "Moderate", "Considerable", "High", "Extreme"]
 
 def _fetch(run, fh, wanted, hidx):
     """wanted: {key: (var, level, desc)} -> {key: float32 values at the mountain cells}."""
-    u = HR.url(run, fh, "sfc")
-    ents = G.parse_idx(G.http_get(u + ".idx").decode())
-    pick = {}
-    for key, (var, level, desc) in wanted.items():
-        e = G.find(ents, var, level, lambda d, desc=desc: d == desc)
-        if e is None:
-            raise KeyError(f"{var}:{level}:{desc} not in {u}")
-        pick[e] = key
-    msgs = G.fetch_ranges(u, G.merge_ranges(list(pick)))
-    out = {}
-    for e, key in pick.items():
-        vals, _info, _la, _lo = G.decode(msgs[e])
-        out[key] = vals.ravel()[hidx].astype(np.float32)
-    return out
-
-
-def latest_cycle():
-    now = dt.datetime.utcnow().replace(minute=0, second=0, microsecond=0)
-    for k in range(1, 30):
-        c = now - dt.timedelta(hours=k)
-        if c.hour % 6 == 0 and G.exists(HR.url(c, 24, "sfc") + ".idx"):
-            return c
-    raise RuntimeError("no HRRR cycle with a 24-h forecast")
+    return H._fetch(run, fh, wanted, {"c": hidx})["c"]
 
 
 def hrrr_fields(st, workers=16):
     """Past 7 days in 6-h windows plus current snow depth and the next 24 h, at the mountain cells."""
     hidx = st["hidx"]
-    C = latest_cycle()
-    CACHE.mkdir(parents=True, exist_ok=True)
-    hist_spec = {"asnow": ("ASNOW", "surface", "0-6 hour acc fcst"), "apcp": ("APCP", "surface", "0-6 hour acc fcst"),
-                 "t2": ("TMP", "2 m above ground", "6 hour fcst"),
-                 "u80": ("UGRD", "80 m above ground", "6 hour fcst"), "v80": ("VGRD", "80 m above ground", "6 hour fcst")}
-
-    def hist(k):  # window ending at C - 6k, from the run 6 h before its end
-        cyc = C - dt.timedelta(hours=6 * k + 6)
-        p = CACHE / f"h_{cyc:%Y%m%d%H}.npz"
-        if p.exists():
-            try:
-                with np.load(p) as z:
-                    return {key: z[key].astype(np.float32) for key in z.files}
-            except Exception:  # noqa
-                p.unlink(missing_ok=True)
-        f = _fetch(cyc, 6, hist_spec, hidx)
-        np.savez_compressed(p, **{key: v.astype(np.float16) for key, v in f.items()})
-        return f
+    C = H.latest_cycle()
 
     def fcst(fh):
         spec = {"t2": ("TMP", "2 m above ground", f"{fh} hour fcst"),
@@ -92,23 +55,17 @@ def hrrr_fields(st, workers=16):
             spec.update(fasnow=("ASNOW", "surface", "0-1 day acc fcst"), fapcp=("APCP", "surface", "0-1 day acc fcst"))
         return _fetch(C, fh, spec, hidx)
 
-    with ThreadPoolExecutor(workers) as ex:
-        hs = ex.map(hist, range(28))
+    with ThreadPoolExecutor(workers) as ex:  # windows ending C - 6k; ingest.avy_history caches their cell values
+        hs = ex.map(lambda k: H.window(C - dt.timedelta(hours=6 * k + 6), st)["cells"], range(28))
         fc = ex.map(fcst, (6, 12, 18, 24))
-        now = ex.submit(_fetch, C, 0, {"snod": ("SNOD", "surface", "anl"), "hgt": ("HGT", "surface", "anl")}, hidx)
+        now = ex.submit(_fetch, C, 0, {"snod": ("SNOD", "surface", "anl")}, hidx)
         hs, fc, now = list(hs), list(fc), now.result()
-    for p in CACHE.glob("h_*.npz"):  # keep 9 days
-        try:
-            if dt.datetime.strptime(p.stem[2:], "%Y%m%d%H") < C - dt.timedelta(days=9):
-                p.unlink()
-        except ValueError:
-            pass
 
-    lapse = -0.0065 * (st["dem"] - now["hgt"])  # HRRR's smoothed terrain -> real cell elevation
-    t = np.stack([h["t2"] - 273.15 + lapse for h in hs])
-    asnow = np.stack([h["asnow"] for h in hs]) * 100   # m -> cm
+    lapse = -0.0065 * (st["dem"] - st["hhgt"])  # HRRR's smoothed terrain -> real cell elevation
+    t = np.stack([h["t2"] for h in hs])                 # degC, already moved to the cell's height
+    asnow = np.stack([h["asnow"] for h in hs])          # cm
     apcp = np.stack([h["apcp"] for h in hs])            # mm
-    wind = np.stack([np.hypot(h["u80"], h["v80"]) for h in hs[:12]])
+    wind = np.stack([h["w80"] for h in hs[:12]])
     rain = np.where(t > 1.0, np.maximum(apcp - asnow, 0), 0)  # 10:1 snow ratio
     return C, dict(
         hs=np.clip(now["snod"] * 100, 0, 400), hn24=asnow[:4].sum(0), hn72=asnow[:12].sum(0), hn7d=asnow.sum(0),
@@ -120,50 +77,6 @@ def hrrr_fields(st, workers=16):
 
 # ---------------------------------------------------------------- SNOTEL
 
-def snotel(today):
-    """Active SNOTEL stations in the ten states with daily snow depth for the past 8 days (cm)."""
-    c = G.client()
-    stations = []
-    for s in STATES:
-        r = c.get(f"{AWDB}/stations", params={"stationTriplets": f"*:{s}:SNTL", "activeOnly": "true",
-                                              "returnForecastPointMetadata": "false", "returnReservoirMetadata": "false",
-                                              "returnStationElements": "false"})
-        r.raise_for_status()
-        stations += r.json()
-    by = {s["stationTriplet"]: s for s in stations if s.get("latitude") and s.get("longitude")}
-    trip = list(by)
-    begin, end = (today - dt.timedelta(days=8)).isoformat(), today.isoformat()
-    for b in range(0, len(trip), 60):
-        r = c.get(f"{AWDB}/data", params={"stationTriplets": ",".join(trip[b:b + 60]), "elements": "SNWD,WTEQ",
-                                          "duration": "DAILY", "beginDate": begin, "endDate": end})
-        r.raise_for_status()
-        for row in r.json():
-            s = by.get(row.get("stationTriplet"))
-            if s is None:
-                continue
-            for el in row.get("data", []):
-                code = (el.get("stationElement") or {}).get("elementCode")
-                vals = {v["date"][:10]: v["value"] for v in el.get("values", []) if v.get("value") is not None}
-                s[code] = vals
-    out = []
-    for s in by.values():
-        d = s.get("SNWD") or {}
-        if not d:
-            continue
-        days = sorted(d)
-        last = days[-1]
-        if (today - dt.date.fromisoformat(last)).days > 2:
-            continue
-        hs = d[last] * 2.54
-        prev = lambda n: d.get((dt.date.fromisoformat(last) - dt.timedelta(days=n)).isoformat())
-        ch = lambda n: None if prev(n) is None else round((d[last] - prev(n)) * 2.54, 1)
-        swe = (s.get("WTEQ") or {}).get(last)
-        out.append({"name": s.get("name"), "id": s["stationTriplet"], "lat": round(float(s["latitude"]), 4),
-                    "lon": round(float(s["longitude"]), 4), "elev_ft": s.get("elevation"), "date": last,
-                    "hs": round(hs, 1), "d24": ch(1), "d72": ch(3), "swe": None if swe is None else round(swe * 2.54, 1)})
-    return out
-
-
 def merc_px(lon, lat, z):
     n = 256 * 2 ** z
     x = (np.asarray(lon) + 180) / 360 * n
@@ -173,26 +86,11 @@ def merc_px(lon, lat, z):
 
 def apply_snotel(st, w, stations):
     """Attach stations to nearby range cells and scale each range's modelled snow toward what they measure."""
-    W, H, gx, gy, z = int(st["W"]), int(st["H"]), float(st["gx"]), float(st["gy"]), int(st["z"])
-    cell = np.full((H, W), -1, np.int32)
-    cell[st["iy"], st["ix"]] = np.arange(len(st["iy"]))
     rid = st["rid"]
-    hits = {}
+    hits = LY.attach(st, stations)
     for s in stations:
-        x, y = merc_px(s["lon"], s["lat"], z)
-        x, y = int(x - gx), int(y - gy)
-        best = None
-        for r in range(0, 4):  # nearest mountain cell within ~8 km
-            y0, y1, x0, x1 = max(y - r, 0), min(y + r + 1, H), max(x - r, 0), min(x + r + 1, W)
-            win = cell[y0:y1, x0:x1]
-            if (win >= 0).any():
-                best = int(win[win >= 0][0]); break
-        if best is None:
-            continue
-        s["range"] = int(rid[best])
-        s["model_hs"] = round(float(w["model_hs"][best]), 1)
-        s["_cell"] = best
-        hits.setdefault(int(rid[best]), []).append(s)
+        if "_cell" in s:
+            s["model_hs"] = round(float(w["model_hs"][s["_cell"]]), 1)
     for r, ss in hits.items():
         # Blend the model toward what the stations measure, scaled by each cell's height above or below them.
         m = rid == r
@@ -324,8 +222,9 @@ def match_zones(st, zones):
 
 # ---------------------------------------------------------------- danger model
 
-def cell_scores(w, band, continental):
-    """1-5 on the North American danger scale for each cell (0 = minimal snow), plus the reasons that fired."""
+def cell_scores(w, band):
+    """1-5 on the North American danger scale for each cell (0 = minimal snow) from the last 7 days and next 24 h,
+    plus the reasons that fired. Buried persistent weak layers come from the season-long ledger (avy_layers)."""
     hs, hn24, hn72, hn7d = w["hs"], w["hn24"], w["hn72"], w["hn7d"]
     rain, tmax, wmean, wmax, fhn = w["rain72"], np.maximum(w["tmax24"], w["ftmax"]), w["wmean72"], w["wmax72"], w["fhn24"]
     high = band >= 2
@@ -340,40 +239,43 @@ def cell_scores(w, band, continental):
     warm = (tmax > 2) & (hn72 >= 10)
     s = s + np.where(warm, 0.5, 0)
     s = s + 0.6 * np.interp(fhn, [0, 10, 30, 60], [0, 0.5, 1.5, 2.5])
-    pwl = continental & (hs >= 30) & (hs < 100) & (load >= 20)
-    s = s + np.where(pwl, 0.5, 0)
     s = np.where(hs < 40, np.minimum(s, 2), np.where(hs < 70, np.minimum(s, 3), s))
     s = np.where(snow, np.clip(s, 1, 5), 0)
-    flags = dict(load=load_eff >= 10, drift=drift, ros=ros, warm=warm, storm=fhn >= 10, pwl=pwl, shallow=snow & (hs < 70))
+    flags = dict(load=load_eff >= 10, drift=drift, ros=ros, warm=warm, storm=fhn >= 10, shallow=snow & (hs < 70))
     return s, flags
 
 
 # ---------------------------------------------------------------- build
 
-def build(out_dir, workers=16, use_snotel=True):
+def build(out_dir, workers=16, use_snotel=True, budget=300):
     t0 = time.time()
     st = dict(np.load(STATIC))
     st["dem"] = st["dem"].astype(np.float32)
+    st["hhgt"] = st["hhgt"].astype(np.float32)
+    today = dt.datetime.utcnow().date()
+    # the season record first: SNOTEL, every 6-h HRRR window since 1 Oct, and the centers' forecasts
+    db = H.update(st, budget=budget, workers=workers, parts=("snotel", "hrrr", "centers") if use_snotel else ("hrrr", "centers"))
     C, w = hrrr_fields(st, workers)
     log.info("HRRR %s: %d mountain cells (%.0fs)", C, len(st["rid"]), time.time() - t0)
 
     stations = []
     if use_snotel:
-        try:
-            stations = snotel(dt.datetime.utcnow().date())
-            hits = apply_snotel(st, w, stations)
-            log.info("SNOTEL: %d stations, %d in ranges", len(stations), sum(len(v) for v in hits.values()))
-        except Exception as e:  # noqa
-            log.warning("SNOTEL failed: %s", e)
-            stations = []
+        stations = H.station_list(db, today)
+        hits = apply_snotel(st, w, stations)
+        log.info("SNOTEL: %d stations reporting, %d in ranges", len(stations), sum(len(v) for v in hits.values()))
 
     off = official()
     zones = off["zones"]
     zmap = match_zones(st, zones) if zones else {}
     log.info("official: %d zones, %d rated, %d ranges matched", len(zones), sum(z["level"] >= 1 for z in zones), len(zmap))
 
+    led, days = LY.run(db, st, today)
+    tally, per = LY.verify(db, led, days, zones, zmap)
+    log.info("weak layers: %d tracks, %d with a persistent problem today; vs centers %s", len(led),
+             sum(v["floor"] >= 2 for v in led.values()), tally)
+
     rid, band = st["rid"].astype(int), st["band"].astype(int)
-    score, flags = cell_scores(w, band, st["lon"] > -119.0)
+    score, flags = cell_scores(w, band)
     ranges = []
     for k, (name, state, _line, zone_key) in enumerate(RANGES, 1):
         m = rid == k
@@ -382,16 +284,22 @@ def build(out_dir, workers=16, use_snotel=True):
         rec = {"id": k, "name": name, "state": state,
                "bbox": [round(float(st["lat"][m].min()), 3), round(float(st["lon"][m].min()), 3),
                         round(float(st["lat"][m].max()), 3), round(float(st["lon"][m].max()), 3)],
-               "bands": [], "elev": [], "drivers": [], "reasons": [],
+               "bands": [], "elev": [], "drivers": [], "reasons": [], "layers": [], "pwl": [],
                "snotel": [s["id"] for s in stations if s.get("range") == k]}
         reasons = set()
         for b in (1, 2, 3):
             mb = m & (band == b)
+            lg = led.get((k, b))
+            rec["layers"].append(lg["layers"] if lg else [])
+            rec["pwl"].append("".join(str(x) for x in lg["series"]) if lg else "")
             if mb.sum() < 3:
                 rec["bands"].append(None); rec["elev"].append(None); rec["drivers"].append(None)
                 continue
             sc = score[mb]
             lvl = 0 if (sc > 0).mean() < 0.3 else int(np.clip(np.round(np.percentile(sc[sc > 0], 75)), 1, 5))
+            if lvl and lg and lg["floor"] >= 2:
+                reasons.add("persistent")
+                lvl = max(lvl, lg["floor"])
             rec["bands"].append(lvl)
             rec["elev"].append([int(np.percentile(st["dem"][mb], 5)), int(np.percentile(st["dem"][mb], 95))])
             p = lambda key, q=50: round(float(np.percentile(w[key][mb], q)), 1)
@@ -403,14 +311,25 @@ def build(out_dir, workers=16, use_snotel=True):
         rec["reasons"] = sorted(reasons)
         if k in zmap:
             rec["zone"] = zmap[k]
+            z = zones[zmap[k]]
+            today_c = H.center_problems(db, z["center_id"], z["name"], today)
+            if today_c:
+                rec["center_problems"] = today_c
+            if k in per:
+                rec["verify"] = per[k]
         elif zone_key:  # no live zone list: still say which center covers it
             cid, zname = zone_key.split(":", 1)
             rec["center"] = {"center": CENTERS[cid][0], "zone": zname, "link": CENTERS[cid][1]}
         ranges.append(rec)
 
+    hist = db.execute("SELECT count(*), sum(through IS NOT NULL) FROM snotel_station").fetchone()
     meta = {"generated": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z", "cycle": C.isoformat() + "Z",
             "official_checked": off["checked"], "official_stale": bool(off.get("stale")), "snotel": len(stations),
+            "season_start": days[0].isoformat(), "verify": tally,
+            "history": {"snotel_stations": hist[0], "snotel_saved": hist[1] or 0,
+                        "center_forecasts": db.execute("SELECT count(*) FROM center_forecast").fetchone()[0]},
             "grid": {"W": int(st["W"]), "H": int(st["H"]), "gx": float(st["gx"]), "gy": float(st["gy"]), "z": int(st["z"])}}
+    db.close()
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     for z in zones:
@@ -426,10 +345,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "site" / "data" / "avy"))
     ap.add_argument("--no-snotel", action="store_true")
+    ap.add_argument("--budget", type=float, default=300, help="seconds for backfilling old SNOTEL years and past center forecasts")
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)
-    build(a.out, use_snotel=not a.no_snotel)
+    build(a.out, use_snotel=not a.no_snotel, budget=a.budget)
 
 
 if __name__ == "__main__":

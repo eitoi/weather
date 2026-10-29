@@ -6,3 +6,4 @@ site/data.old/
 *.log
 .env
 __pycache__/
+history/

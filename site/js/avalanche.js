@@ -12,9 +12,13 @@
     ros: 'Rain has fallen on the snowpack in the last three days.',
     warm: 'Warm temperatures are hitting fresh snow, so wet avalanches are possible.',
     storm: 'More snow is forecast in the next 24 hours.',
-    pwl: 'A thin continental snowpack under new load often hides weak, sugary layers.',
+    persistent: 'A buried persistent weak layer sits under a slab (see Buried weak layers below).',
     shallow: 'The snowpack is still shallow, which limits avalanche size but hides rocks.',
   };
+  const KIND = { dh: 'Depth hoar', fc: 'Facets', nsf: 'Near-surface facets', sh: 'Surface hoar', cf: 'Facets on a crust' };
+  const ASPECT = { N: 'shaded north slopes', S: 'sunny south slopes', all: 'all aspects' };
+  const DIRS = { north: 'N', northeast: 'NE', east: 'E', southeast: 'SE', south: 'S', southwest: 'SW', west: 'W', northwest: 'NW' };
+  const ELEV = { upper: 'above treeline', middle: 'near treeline', lower: 'below treeline' };
   const STATES = ['All', 'WA', 'OR', 'CA', 'NV', 'ID', 'MT', 'WY', 'UT', 'CO', 'NM'];
 
   let D = null, byId = {}, map = null, base = null, raster = null, zoneLayer = null, snoLayer = null, canvas = null;
@@ -34,6 +38,7 @@
   // keep fitted areas clear of the side panel (right on desktop, bottom sheet on phones)
   const pad = () => { const el = $('avyPanel'), phone = innerWidth <= 760;
     return { paddingTopLeft: [20, phone ? 90 : 20], paddingBottomRight: phone ? [20, el.offsetHeight + 10] : [el.offsetWidth + 30, 20] }; };
+  const md = d => d ? new Date(d + 'T12:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' }) : '';
   const when = s => s ? WX.time.hm(new Date(s)) + ' ' + WX.time.day(new Date(s)) : 'unknown';
 
   WX.on('showAvy', () => { init().then(() => setTimeout(() => map && map.invalidateSize(), 0)); });
@@ -240,8 +245,9 @@
         <li>Each ~2 km mountain cell is scored from HRRR for the past 7 days and next 24 hours. Each range and elevation band takes the 75th-percentile score.</li>
         <li>New snow (weighted toward the last 24 hours and boosted by wind near and above treeline), drifting, rain on snow, warming and forecast snow raise the score.</li>
         <li>SNOTEL snow depth and its 24 h and 72 h change pull the model toward measurements in ranges that have stations.</li>
-        <li>Thin continental snowpacks under new load get a bump for weak layers. Under 6 in of snow counts as minimal snow; under 16 in caps the rating at Moderate, under 28 in at Considerable.</li>
-        <li>Treeline is approximate. Observations and snowpits are not used, which is why official forecasts are always better.</li></ul></details>`;
+        <li>Buried weak layers come from a season-long record kept since ${md(D.meta.season_start) || 'Oct 1'}. Each day it checks for the weather that grows facets, depth hoar and surface hoar on shaded and sunny slopes, notes each layer when snow buries it, and follows its depth and loading. An active layer under a slab raises the rating to Moderate, and a fresh load on it to Considerable or High.</li>
+        <li>Under 6 in of snow counts as minimal snow; under 16 in caps the rating at Moderate, under 28 in at Considerable.</li>
+        <li>Treeline is approximate. Observations and snowpits are not used, which is why official forecasts are always better.</li></ul>${verifyHtml(D.meta.verify, 'all center zones')}</details>`;
   }
 
   function detail() {
@@ -262,6 +268,7 @@
       <div style="margin:8px 0">${pill(r.top, !r.isOfficial)}</div>${src}
       <h4>By elevation</h4><div class="avy-bands">${[3, 2, 1].map(b => `<div class="avy-band"><div>${BAND[b - 1]}${r.elev[b - 1] ? `<span class="muted small"> ${fmt(U.len(r.elev[b - 1][0]), 0)}–${fmt(U.len(r.elev[b - 1][1]), 0)} ${U.lenU()}</span>` : ''}</div>${pill(bandLevel(r, b), !r.isOfficial)}</div>`).join('')}</div>
       ${why ? `<h4>Why</h4><ul class="small avy-why">${why}</ul>` : ''}
+      ${centerHtml(r)}${layersHtml(r)}
       <h4>Model weather${sts.length ? ' (SNOTEL-corrected)' : ''}</h4><div class="tbl-wrap"><table class="data"><thead><tr><th></th>${cols.map(b => `<th>${['Below', 'Near', 'Above'][b - 1]}</th>`).join('')}</tr></thead><tbody>
       ${row('Snow depth', x => sn(x.hs))}${row('New snow 24 h', x => sn(x.hn24))}${row('New snow 72 h', x => sn(x.hn72))}${row('New snow 7 days', x => sn(x.hn7d))}
       ${row('Rain 72 h', x => fmt(U.precip(x.rain72), U.imperial() ? 2 : 0) + ' ' + U.precipU())}
@@ -271,6 +278,42 @@
       ${sts.length ? `<h4>SNOTEL</h4><div class="tbl-wrap"><table class="data"><thead><tr><th>Station</th><th>Elev</th><th>Depth</th><th>24 h</th><th>72 h</th></tr></thead><tbody>${sts.map(s => `<tr><td>${esc(s.name)}</td><td>${fmt(U.len((s.elev_ft || 0) * 0.3048), 0)}</td><td>${sn(s.hs)}</td><td>${s.d24 === null ? '–' : fmt(U.snow(s.d24), 0)}</td><td>${s.d72 === null ? '–' : fmt(U.snow(s.d72), 0)}</td></tr>`).join('')}</tbody></table></div>` : ''}
       <p class="muted small">HRRR ${when(D.meta.cycle)} · center ratings checked ${when(D.meta.official_checked)}${D.meta.official_stale ? ' (last good copy)' : ''}</p>`;
     $('avyBack').onclick = () => select(null);
+  }
+
+  /* ---------------------------------------------------------------- buried weak layers (season-long ledger) */
+  const strengthWord = x => x >= 0.9 ? 'pronounced' : x >= 0.5 ? 'moderate' : 'faint';
+  function layerLine(L) {
+    const when = L.kind === 'dh' ? `forming at the ground since ${md(L.buried)}` : `buried ${md(L.buried)}`;
+    const state = L.state === 'active' ? `active, last loaded ${md(L.last_load)}` : L.state === 'deep' ? 'deeply buried: hard to trigger, large if it goes'
+      : `dormant since ${md(L.last_load)}; a big load could wake it`;
+    return `<li><b>${KIND[L.kind] || L.kind}</b>, ${strengthWord(L.strength)} · ${when} · under about ${fmt(U.snow(L.depth), 0)} ${U.snowU()} of snow on ${ASPECT[L.aspect] || L.aspect} · ${state}</li>`;
+  }
+  function strip(series, start) {
+    if (!series) return '';
+    const t0 = new Date(start + 'T12:00:00'), n = series.length;
+    const cells = [...series].map((c, i) => `<i style="background:${+c >= 2 ? HEX[+c] : 'var(--surface-2)'}" title="${md(new Date(t0.getTime() + i * 864e5).toISOString().slice(0, 10))}: ${+c >= 2 ? NAMES[+c] : 'no persistent problem'}"></i>`).join('');
+    return `<div class="avy-strip" style="grid-template-columns:repeat(${n},1fr)">${cells}</div>`;
+  }
+  function layersHtml(r) {
+    if (!r.layers) return '';
+    const bands = [3, 2, 1].filter(b => r.pwl && r.pwl[b - 1]);
+    const lists = bands.map(b => (r.layers[b - 1] || []).length ? `<div class="small"><b>${BAND[b - 1]}</b><ul class="small avy-why">${r.layers[b - 1].map(layerLine).join('')}</ul></div>` : '').join('');
+    const strips = bands.map(b => `<div class="avy-strip-row"><span class="small muted">${['Below', 'Near', 'Above'][b - 1]}</span>${strip(r.pwl[b - 1], D.meta.season_start)}</div>`).join('');
+    return `<h4>Buried weak layers</h4>${lists || '<p class="small muted">No persistent weak layer of concern is being tracked in this range right now.</p>'}
+      ${strips ? `<div class="small muted" style="margin-top:6px">Persistent-slab estimate since ${md(D.meta.season_start)}</div>${strips}` : ''}
+      ${r.verify ? verifyHtml(r.verify, 'this zone') : ''}`;
+  }
+  function verifyHtml(v, where) {
+    const n = v ? v.both + v.center_only + v.model_only + v.neither : 0;
+    if (!n) return '';
+    return `<p class="small muted">Compared with the center's own persistent slab problem in ${where}: agreed on ${Math.round(100 * (v.both + v.neither) / n)}% of ${n} forecast days (both: ${v.both}, center only: ${v.center_only}, estimate only: ${v.model_only}).</p>`;
+  }
+  function centerHtml(r) {
+    const c = r.center_problems;
+    if (!c || !c.problems.length) return '';
+    const loc = l => { const d = [...new Set(l.map(x => DIRS[x.split(' ')[0]]).filter(Boolean))], e = [...new Set(l.map(x => ELEV[x.split(' ')[1]]).filter(Boolean))];
+      return (d.length === 8 ? 'all aspects' : d.join(' ')) + (e.length ? ' · ' + (e.length === 3 ? 'all elevations' : e.join(', ')) : ''); };
+    return `<h4>Center's avalanche problems (${md(c.day)})</h4><ul class="small avy-why">${c.problems.map(p => `<li><b>${esc(p.name)}</b>${p.likelihood ? ', ' + esc(p.likelihood) : ''}${p.size[0] ? `, size ${p.size[0]}${p.size[1] !== p.size[0] ? '–' + p.size[1] : ''}` : ''}<br><span class="muted">${esc(loc(p.location))}</span></li>`).join('')}</ul>`;
   }
 
   function listHtml() {
