@@ -44,6 +44,7 @@ AWDB = "https://wcc.sc.egov.usda.gov/awdbRestApi/services/v1"
 AVA = "https://api.avalanche.org/v2/public"
 SNOTEL_ELEMENTS = ["SNWD", "WTEQ", "TMAX", "TMIN", "TAVG", "PREC"]
 CENTER_BACKFILL_FROM = dt.date(2022, 10, 1)   # past seasons of center forecasts to collect, oldest first
+RECENT_FROM = "2022-08-01"                     # SNOTEL is filled from here first, so those seasons can be verified
 EPOCH = dt.date(1970, 1, 1)
 
 # HRRR fields per 6-h window, all from the f06 file of the run 6 h before the window ends.
@@ -62,7 +63,8 @@ FIELDS = ["asnow", "apcp", "t2", "td2", "tsk", "w10", "w80", "tcdc", "dswrf", "d
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS snotel_station (sid INTEGER PRIMARY KEY, triplet TEXT UNIQUE, name TEXT, state TEXT,
-  lat REAL, lon REAL, elev_ft REAL, begin TEXT, active INTEGER, through TEXT, hrrr_idx INTEGER, hrrr_hgt REAL);
+  lat REAL, lon REAL, elev_ft REAL, begin TEXT, active INTEGER, through TEXT, hrrr_idx INTEGER, hrrr_hgt REAL,
+  back TEXT);
 CREATE TABLE IF NOT EXISTS snotel_daily (sid INTEGER, day INTEGER, snwd INTEGER, wteq INTEGER, tmax INTEGER,
   tmin INTEGER, tavg INTEGER, prec INTEGER, PRIMARY KEY (sid, day)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS hrrr_track (valid INTEGER, range_id INTEGER, band INTEGER, asnow INTEGER, apcp INTEGER,
@@ -101,6 +103,10 @@ def connect(path=DB):
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=60)
     db.executescript(SCHEMA)
+    if "back" not in [r[1] for r in db.execute("PRAGMA table_info(snotel_station)")]:  # files from before back existed
+        db.execute("ALTER TABLE snotel_station ADD COLUMN back TEXT")
+        db.execute("UPDATE snotel_station SET back = begin WHERE through IS NOT NULL")  # those got their full history
+        db.commit()
     return db
 
 
@@ -335,8 +341,18 @@ def _snotel_data(db, rows, begin, end):
     return len(vals)
 
 
+def _snotel_slices(db, sid, triplet, begin, end):
+    """One station's daily values, a decade at a time (for when a long batch request fails)."""
+    n, y = 0, int(begin[:4])
+    while f"{y}-01-01" <= end:
+        n += _snotel_data(db, [(sid, triplet)], max(begin, f"{y}-01-01"), min(f"{y + 9}-12-31", end))
+        y += 10
+    return n
+
+
 def update_snotel(db, budget_end):
-    """The last 30 days for every active station (values get revised), then full histories within the budget."""
+    """The last 30 days for every active station (values get revised); then, within the budget, every station from
+    RECENT_FROM (the seasons the center forecasts cover) to today; then each station's older years back to its start."""
     n = update_stations(db)
     today = dt.date.today()
     recent = db.execute("SELECT sid, triplet FROM snotel_station WHERE active = 1 AND through IS NOT NULL").fetchall()
@@ -346,32 +362,42 @@ def update_snotel(db, budget_end):
         got += _snotel_data(db, recent[b:b + 50], begin, today.isoformat())
         db.executemany("UPDATE snotel_station SET through = ? WHERE sid = ?", [(today.isoformat(), r[0]) for r in recent[b:b + 50]])
         db.commit()
-    todo = db.execute("SELECT sid, triplet, begin FROM snotel_station WHERE through IS NULL ORDER BY active DESC, sid").fetchall()
-    full = 0
-    for b in range(0, len(todo), 8):
-        if time.time() > budget_end:
-            log.info("SNOTEL: %d stations still to backfill (next run continues)", len(todo) - b)
-            break
-        chunk = todo[b:b + 8]
-        try:
-            got += _snotel_data(db, [(s, t) for s, t, _b in chunk], min(c[2] for c in chunk), today.isoformat())
-            ok = chunk
-        except Exception as e:  # noqa  (a very long request can fail: retry each station a decade at a time)
-            log.info("SNOTEL: batch failed (%s); fetching station by station", e)
-            ok = []
-            for s, t, begin in chunk:
-                try:
-                    y = int(begin[:4])
-                    while y <= today.year:
-                        got += _snotel_data(db, [(s, t)], max(begin, f"{y}-01-01"), min(f"{y + 9}-12-31", today.isoformat()))
-                        y += 10
-                    ok.append((s, t, begin))
-                except Exception as e2:  # noqa
-                    log.warning("SNOTEL: %s history failed, will retry next run: %s", t, e2)
-        db.executemany("UPDATE snotel_station SET through = ? WHERE sid = ?", [(today.isoformat(), c[0]) for c in ok])
-        db.commit()
-        full += len(ok)
-    log.info("SNOTEL: %d stations listed, %d station-days written, %d full histories added", n, got, full)
+    stats = {"recent": 0, "full": 0}
+    for phase in ("recent", "full"):
+        if phase == "recent":
+            todo = db.execute("SELECT sid, triplet, max(begin, ?) FROM snotel_station WHERE through IS NULL ORDER BY active DESC, sid",
+                              (RECENT_FROM,)).fetchall()
+            end = lambda c: today.isoformat()
+            size = 20
+        else:
+            todo = db.execute("SELECT sid, triplet, begin, back FROM snotel_station WHERE back > begin ORDER BY active DESC, sid").fetchall()
+            end = lambda c: (dt.date.fromisoformat(c[3]) - dt.timedelta(days=1)).isoformat()
+            size = 8
+        for b in range(0, len(todo), size):
+            if time.time() > budget_end:
+                log.info("SNOTEL: %d stations still to backfill (%s, next run continues)", len(todo) - b, phase)
+                break
+            chunk = todo[b:b + size]
+            try:
+                got += _snotel_data(db, [c[:2] for c in chunk], min(c[2] for c in chunk), max(end(c) for c in chunk))
+                ok = chunk
+            except Exception as e:  # noqa  (a very long request can fail: retry each station a decade at a time)
+                log.info("SNOTEL: batch failed (%s); fetching station by station", e)
+                ok = []
+                for c in chunk:
+                    try:
+                        got += _snotel_slices(db, c[0], c[1], c[2], end(c))
+                        ok.append(c)
+                    except Exception as e2:  # noqa
+                        log.warning("SNOTEL: %s failed, will retry next run: %s", c[1], e2)
+            if phase == "recent":
+                db.executemany("UPDATE snotel_station SET through = ?, back = ? WHERE sid = ?", [(today.isoformat(), c[2], c[0]) for c in ok])
+            else:
+                db.executemany("UPDATE snotel_station SET back = begin WHERE sid = ?", [(c[0],) for c in ok])
+            db.commit()
+            stats[phase] += len(ok)
+    log.info("SNOTEL: %d stations listed, %d station-days written, %d stations filled since %s, %d full histories done",
+             n, got, stats["recent"], RECENT_FROM, stats["full"])
 
 
 def station_list(db, today, ranges_of=None):
@@ -430,14 +456,12 @@ def _center_month(db, center, month):
     last = min((first + dt.timedelta(days=32)).replace(day=1) - dt.timedelta(days=1), dt.date.today())
     items = _get("products", {"avalanche_center_id": center, "date_start": first.isoformat(), "date_end": last.isoformat()})
     have = {r[0] for r in db.execute("SELECT id FROM center_forecast WHERE center = ?", (center,))}
-    n = 0
-    for it in items:
-        if it.get("product_type") != "forecast" or it.get("id") in have:
-            continue
-        _save_product(db, _get(f"product/{it['id']}"))
-        n += 1
+    ids = [it["id"] for it in items if it.get("product_type") == "forecast" and it.get("id") not in have]
+    with ThreadPoolExecutor(6) as ex:  # a few at a time, to stay polite to avalanche.org
+        for p in ex.map(lambda i: _get(f"product/{i}"), ids):
+            _save_product(db, p)
     db.commit()
-    return n
+    return len(ids)
 
 
 def update_centers(db, centers, budget_end):
@@ -524,8 +548,8 @@ def status(db):
     q = lambda s: db.execute(s).fetchone()
     print(f"file: {DB} ({DB.stat().st_size / 1e6:.1f} MB)" if DB.exists() else f"file: {DB}")
     print("updated:", (q("SELECT value FROM meta WHERE key = 'updated'") or ["never"])[0])
-    a, b, n = q("SELECT count(*), sum(active), sum(through IS NOT NULL) FROM snotel_station")
-    print(f"SNOTEL: {a} stations ({b or 0} active), {n or 0} with history saved")
+    a, b, n, f = q("SELECT count(*), sum(active), sum(through IS NOT NULL), sum(back <= begin) FROM snotel_station")
+    print(f"SNOTEL: {a} stations ({b or 0} active), {n or 0} saved since {RECENT_FROM[:4]}, {f or 0} back to their first record")
     n, d0, d1 = q("SELECT count(*), min(day), max(day) FROM snotel_daily")
     if n:
         print(f"        {n} station-days, {EPOCH + dt.timedelta(days=d0)} to {EPOCH + dt.timedelta(days=d1)}")

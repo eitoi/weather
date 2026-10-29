@@ -247,7 +247,7 @@
         <li>SNOTEL snow depth and its 24 h and 72 h change pull the model toward measurements in ranges that have stations.</li>
         <li>Buried weak layers come from a season-long record kept since ${md(D.meta.season_start) || 'Oct 1'}. Each day it checks for the weather that grows facets, depth hoar and surface hoar on shaded and sunny slopes, notes each layer when snow buries it, and follows its depth and loading. An active layer under a slab raises the rating to Moderate, and a fresh load on it to Considerable or High.</li>
         <li>Under 6 in of snow counts as minimal snow; under 16 in caps the rating at Moderate, under 28 in at Considerable.</li>
-        <li>Treeline is approximate. Observations and snowpits are not used, which is why official forecasts are always better.</li></ul>${verifyHtml(D.meta.verify, 'all center zones')}</details>`;
+        <li>Treeline is approximate. Observations and snowpits are not used, which is why official forecasts are always better.</li></ul>${verifyHtml(D.meta.verify, 'all center zones')}${historyHtml(D.meta.verify_history)}</details>`;
   }
 
   function detail() {
@@ -301,12 +301,26 @@
     const strips = bands.map(b => `<div class="avy-strip-row"><span class="small muted">${['Below', 'Near', 'Above'][b - 1]}</span>${strip(r.pwl[b - 1], D.meta.season_start)}</div>`).join('');
     return `<h4>Buried weak layers</h4>${lists || '<p class="small muted">No persistent weak layer of concern is being tracked in this range right now.</p>'}
       ${strips ? `<div class="small muted" style="margin-top:6px">Persistent-slab estimate since ${md(D.meta.season_start)}</div>${strips}` : ''}
-      ${r.verify ? verifyHtml(r.verify, 'this zone') : ''}`;
+      ${r.verify ? verifyHtml(r.verify, 'this zone') : ''}${r.verify_snotel ? pastHtml(r.verify_snotel) : ''}`;
   }
   function verifyHtml(v, where) {
     const n = v ? v.both + v.center_only + v.model_only + v.neither : 0;
     if (!n) return '';
     return `<p class="small muted">Compared with the center's own persistent slab problem in ${where}: agreed on ${Math.round(100 * (v.both + v.neither) / n)}% of ${n} forecast days (both: ${v.both}, center only: ${v.center_only}, estimate only: ${v.model_only}).</p>`;
+  }
+  const pct = x => x === null || x === undefined ? '–' : Math.round(100 * x) + '%';
+  function pastHtml(v) {
+    if (!v.days) return '';
+    return `<p class="small muted">Since fall 2022, the same model run on this zone's SNOTEL stations agreed with the center on ${pct(v.agree)} of ${v.days} forecast days and caught ${pct(v.pod)} of the days the center listed a persistent slab problem.</p>`;
+  }
+  function historyHtml(h) {
+    if (!h || !Object.keys(h).length) return '';
+    const name = { snotel: 'SNOTEL-only model, every zone with stations', hrrr: 'Full model (HRRR), this season' };
+    const table = ([src, v]) => `<div class="small muted" style="margin-top:6px">${esc(name[src] || src)}</div>
+      <div class="tbl-wrap"><table class="data"><thead><tr><th>Season</th><th>Days</th><th>Agree</th><th>Caught</th><th>False alarms</th></tr></thead><tbody>
+      ${[['All', v.all], ...Object.entries(v.seasons)].map(([k, x]) => `<tr><td>${esc(k)}</td><td>${x.days}</td><td>${pct(x.agree)}</td><td>${pct(x.pod)}</td><td>${pct(x.far)}</td></tr>`).join('')}</tbody></table></div>`;
+    return `<div class="small" style="margin-top:8px"><b>Persistent slab call vs the centers' own problem lists</b></div>${Object.entries(h).map(table).join('')}
+      <p class="small muted">Caught: share of the center's persistent slab days the model also flagged. False alarms: share of the model's persistent slab days the center didn't list.</p>`;
   }
   function centerHtml(r) {
     const c = r.center_problems;

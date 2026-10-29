@@ -24,6 +24,7 @@ import numpy as np
 
 from . import avy_history as H
 from . import avy_layers as LY
+from . import avy_verify as AV
 from . import gribio as G
 from .avy_ranges import RANGES, CENTERS
 
@@ -273,6 +274,12 @@ def build(out_dir, workers=16, use_snotel=True, budget=300):
     tally, per = LY.verify(db, led, days, zones, zmap)
     log.info("weak layers: %d tracks, %d with a persistent problem today; vs centers %s", len(led),
              sum(v["floor"] >= 2 for v in led.values()), tally)
+    try:  # the same comparison for past seasons, with the ledger driven by each zone's SNOTEL stations
+        vsum = AV.run(db, today, zones=zones, zmap=zmap, led=led, days=days)
+        log.info("verify:\n%s", AV.report(vsum))
+    except Exception as e:  # noqa
+        log.warning("verification failed: %s", e)
+        vsum = {}
 
     rid, band = st["rid"].astype(int), st["band"].astype(int)
     score, flags = cell_scores(w, band)
@@ -317,15 +324,19 @@ def build(out_dir, workers=16, use_snotel=True, budget=300):
                 rec["center_problems"] = today_c
             if k in per:
                 rec["verify"] = per[k]
+            vz = vsum.get("snotel", {}).get("zones", {}).get(f'{z["center_id"]}:{z["name"]}')
+            if vz:
+                rec["verify_snotel"] = vz
         elif zone_key:  # no live zone list: still say which center covers it
             cid, zname = zone_key.split(":", 1)
             rec["center"] = {"center": CENTERS[cid][0], "zone": zname, "link": CENTERS[cid][1]}
         ranges.append(rec)
 
-    hist = db.execute("SELECT count(*), sum(through IS NOT NULL) FROM snotel_station").fetchone()
+    hist = db.execute("SELECT count(*), sum(back <= begin) FROM snotel_station").fetchone()
     meta = {"generated": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z", "cycle": C.isoformat() + "Z",
             "official_checked": off["checked"], "official_stale": bool(off.get("stale")), "snotel": len(stations),
             "season_start": days[0].isoformat(), "verify": tally,
+            "verify_history": {src: {"all": v["all"], "seasons": v["seasons"]} for src, v in vsum.items()},
             "history": {"snotel_stations": hist[0], "snotel_saved": hist[1] or 0,
                         "center_forecasts": db.execute("SELECT count(*) FROM center_forecast").fetchone()[0]},
             "grid": {"W": int(st["W"]), "H": int(st["H"]), "gx": float(st["gx"]), "gy": float(st["gy"]), "z": int(st["z"])}}
