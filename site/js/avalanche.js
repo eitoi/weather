@@ -26,8 +26,11 @@
   const zoneOf = r => r && r.zone !== undefined ? D.zones[r.zone] : null;
   const bandLevel = (r, b) => r.bands[b - 1] === null || r.bands[b - 1] === undefined ? null : r.isOfficial ? zoneOf(r).level : r.bands[b - 1];
   const level = r => prefs.mode === 'max' ? r.top : bandLevel(r, +prefs.mode);
-  const pill = l => l === null || l === undefined ? '<span class="avy-pill none">No terrain</span>'
-    : `<span class="avy-pill" style="background:${HEX[l]};color:${l >= 4 ? '#fff' : '#111'}">${l ? l + ' · ' : ''}${NAMES[l]}</span>`;
+  // center forecasts are drawn solid; estimates from weather data are striped
+  const swatch = (l, est) => est ? `repeating-linear-gradient(135deg,${HEX[l]} 0 3px,${HEX[l]}55 3px 6px)` : HEX[l];
+  const SRC = est => est ? 'Estimate' : 'Center forecast';
+  const pill = (l, est) => l === null || l === undefined ? '<span class="avy-pill none">No terrain</span>'
+    : `<span class="avy-pill${est ? ' est' : ''}" style="background:${swatch(l, est)};color:${l >= 4 && !est ? '#fff' : '#111'}">${l ? l + ' · ' : ''}${NAMES[l]}</span>`;
   // keep fitted areas clear of the side panel (right on desktop, bottom sheet on phones)
   const pad = () => { const el = $('avyPanel'), phone = innerWidth <= 760;
     return { paddingTopLeft: [20, phone ? 90 : 20], paddingBottomRight: phone ? [20, el.offsetHeight + 10] : [el.offsetWidth + 30, 20] }; };
@@ -94,7 +97,7 @@
       const h = lookup(e.latlng), el = $('avyHover');
       if (!h) { el.classList.add('hidden'); return; }
       const l = prefs.mode === 'max' ? h.r.top : bandLevel(h.r, h.b);
-      el.innerHTML = `<b>${esc(h.r.name)}</b> · ${BAND[h.b - 1]} · ${NAMES[l ?? 0]} <span class="muted">${h.r.isOfficial ? 'official' : 'estimated'}</span>`;
+      el.innerHTML = `<b>${esc(h.r.name)}</b> · ${BAND[h.b - 1]} · ${NAMES[l ?? 0]} <span class="muted">${SRC(!h.r.isOfficial).toLowerCase()}</span>`;
       el.classList.remove('hidden');
     });
     map.on('mouseout', () => $('avyHover').classList.add('hidden'));
@@ -136,6 +139,8 @@
       if (edge && sel && r === sel.id) { px[o] = 20; px[o + 1] = 110; px[o + 2] = 255; px[o + 3] = 255; continue; }
       const c = RGB[l], k = edge ? 0.7 : 1;
       px[o] = c[0] * k; px[o + 1] = c[1] * k; px[o + 2] = c[2] * k; px[o + 3] = l === 0 ? (edge ? 200 : 150) : 235;
+      // estimates get diagonal stripes so they never look like a center's forecast
+      if (!rec.isOfficial && !edge && ((i % W) + ((i / W) | 0)) % 4 >= 2) px[o + 3] = l === 0 ? 50 : 70;
     }
     ctx.putImageData(img, 0, 0);
     raster.setUrl(canvas.toDataURL());
@@ -152,6 +157,8 @@
   function legend() {
     $('avyLegend').innerHTML = `<div class="lg-title">Avalanche danger</div>` +
       [5, 4, 3, 2, 1, 0].map(l => `<div class="avy-lg"><i style="background:${HEX[l]}"></i>${l ? l + ' · ' : ''}${NAMES[l]}</div>`).join('') +
+      `<div class="lg-title lg-gap">Source</div><div class="avy-lg"><i style="background:${swatch(3, false)}"></i>Solid: avalanche center forecast</div>` +
+      `<div class="avy-lg"><i style="background:${swatch(3, true)}"></i>Striped: estimate from weather data</div>` +
       `<div class="avy-lg"><i class="dash"></i>Center zone, no rating</div><div class="avy-lg"><i class="dot"></i>SNOTEL station</div>`;
   }
 
@@ -171,7 +178,8 @@
       <div class="pt-sub">${D.ranges.length} ranges in WA, OR, CA, NV, ID, MT, WY, UT, CO and NM</div>
       <div class="cards" style="margin-top:10px">${[5, 4, 3, 2, 1, 0].map(l => `<div class="card" style="border-left:5px solid ${HEX[l]}"><div class="k">${NAMES[l]}</div><div class="v">${counts[l]}</div></div>`).join('')}</div>
       <div class="box small">${rated ? `<b>${rated} avalanche center ${rated === 1 ? 'zone is' : 'zones are'} rated today.</b> Ranges inside them show the center's rating.` : '<b>No avalanche center in these states is issuing ratings right now.</b>'}
-      ${nZone} ranges sit inside a center's forecast zone. Everywhere else the rating is an estimate from HRRR snow, rain, wind and temperature, corrected with ${D.meta.snotel ? D.meta.snotel + ' SNOTEL stations' : 'SNOTEL stations when available'}. It is not a forecast.</div>
+      ${nZone} ranges sit inside a center's forecast zone. Everywhere else the rating is an estimate from HRRR snow, rain, wind and temperature, corrected with ${D.meta.snotel ? D.meta.snotel + ' SNOTEL stations' : 'SNOTEL stations when available'}. It is not a forecast.
+      <div class="avy-src"><span><i style="background:${swatch(3, false)}"></i>Solid: center forecast</span><span><i style="background:${swatch(3, true)}"></i>Striped: estimate</span></div></div>
       <details class="afd"><summary>How the estimate works</summary><ul class="small">
         <li>Each ~2 km mountain cell is scored from HRRR for the past 7 days and next 24 hours. Each range and elevation band takes the 75th-percentile score.</li>
         <li>New snow (weighted toward the last 24 hours and boosted by wind near and above treeline), drifting, rain on snow, warming and forecast snow raise the score.</li>
@@ -194,9 +202,9 @@
     else src = '<div class="box small">No avalanche center forecasts this range. Treat the estimate as a rough guide and watch for recent avalanches, cracking and collapsing.</div>';
     body.innerHTML = `<button class="icon-btn avy-back" id="avyBack">← All ranges</button>
       <div class="pt-title" style="margin-top:8px">${esc(r.name)}</div>
-      <div class="pt-sub">${esc(r.state)} · ${r.isOfficial ? 'official rating' : 'estimated'}</div>
-      <div style="margin:8px 0">${pill(r.top)}</div>${src}
-      <h4>By elevation</h4><div class="avy-bands">${[3, 2, 1].map(b => `<div class="avy-band"><div>${BAND[b - 1]}${r.elev[b - 1] ? `<span class="muted small"> ${fmt(U.len(r.elev[b - 1][0]), 0)}–${fmt(U.len(r.elev[b - 1][1]), 0)} ${U.lenU()}</span>` : ''}</div>${pill(bandLevel(r, b))}</div>`).join('')}</div>
+      <div class="pt-sub">${esc(r.state)} · ${r.isOfficial ? 'Avalanche center forecast' : 'Estimate from weather data'}</div>
+      <div style="margin:8px 0">${pill(r.top, !r.isOfficial)}</div>${src}
+      <h4>By elevation</h4><div class="avy-bands">${[3, 2, 1].map(b => `<div class="avy-band"><div>${BAND[b - 1]}${r.elev[b - 1] ? `<span class="muted small"> ${fmt(U.len(r.elev[b - 1][0]), 0)}–${fmt(U.len(r.elev[b - 1][1]), 0)} ${U.lenU()}</span>` : ''}</div>${pill(bandLevel(r, b), !r.isOfficial)}</div>`).join('')}</div>
       ${why ? `<h4>Why</h4><ul class="small avy-why">${why}</ul>` : ''}
       <h4>Model weather${sts.length ? ' (SNOTEL-corrected)' : ''}</h4><div class="tbl-wrap"><table class="data"><thead><tr><th></th>${cols.map(b => `<th>${['Below', 'Near', 'Above'][b - 1]}</th>`).join('')}</tr></thead><tbody>
       ${row('Snow depth', x => sn(x.hs))}${row('New snow 24 h', x => sn(x.hn24))}${row('New snow 72 h', x => sn(x.hn72))}${row('New snow 7 days', x => sn(x.hn7d))}
@@ -225,7 +233,7 @@
     const rows = D.ranges.filter(r => (stateF === 'All' || r.state.split('/').includes(stateF)) && (!ql || r.name.toLowerCase().includes(ql)))
       .sort((a, b) => ((level(b) ?? -1) - (level(a) ?? -1)) || a.name.localeCompare(b.name));
     el.innerHTML = rows.map(r => { const l = level(r);
-      return `<button data-id="${r.id}"><i style="background:${l === null ? 'transparent' : HEX[l]}"></i><span class="nm">${esc(r.name)} <span class="muted small">${esc(r.state)}</span></span><span class="small muted">${r.isOfficial ? '<b class="avy-off">Official</b> ' : ''}${l === null ? '–' : NAMES[l]}</span></button>`; }).join('') || '<p class="muted">No ranges match.</p>';
+      return `<button data-id="${r.id}"><i style="background:${l === null ? 'transparent' : swatch(l, !r.isOfficial)}"></i><span class="nm">${esc(r.name)} <span class="muted small">${esc(r.state)}</span></span><span class="small muted">${r.isOfficial ? '<b class="avy-off">Center</b> ' : 'Est. '}${l === null ? '–' : NAMES[l]}</span></button>`; }).join('') || '<p class="muted">No ranges match.</p>';
   }
 
   function select(r, zoom) {
