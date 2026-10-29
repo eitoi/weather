@@ -1,17 +1,22 @@
-# Publishes the app to GitHub Pages. Every hour it refreshes the Avalanche data; the Weather tab's HRRR and
-# Outlook data is only downloaded when asked for (the app's ↻ button, or "Run workflow" with "Fetch HRRR" ticked).
+# Publishes the app to GitHub Pages. The Weather tab's HRRR and Outlook data and the Avalanche tab's data are only
+# downloaded when asked for (each tab's ↻ button, or "Run workflow" with "Fetch HRRR" or "Fetch avalanche data"
+# ticked).
 # Setup: Settings -> Pages -> Source: "GitHub Actions". Optional secret ANTHROPIC_API_KEY for the written outlook.
 name: Update forecast
 
 on:
   schedule:
-    - cron: "55 * * * *"      # avalanche only; reuses the last HRRR + Outlook build
+    - cron: "55 * * * *"      # redeploys the saved builds, which also keeps them in the Actions cache
   workflow_dispatch:
     inputs:
       hrrr:
         description: Fetch HRRR and the Outlook for the Weather tab
         type: boolean
         default: true
+      avalanche:
+        description: Fetch avalanche data (HRRR history, center ratings, SNOTEL)
+        type: boolean
+        default: false
   push:                       # deploy app changes as soon as they're pushed
     branches: [main]
     paths-ignore: ["README.md", "tools/**"]
@@ -49,7 +54,10 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FETCH_HRRR: ${{ github.event_name == 'workflow_dispatch' && inputs.hrrr }}
-        run: python -m ingest.run --workers 32 $([ "$FETCH_HRRR" = true ] || echo --no-hrrr)
+          FETCH_AVY: ${{ github.event_name == 'workflow_dispatch' && inputs.avalanche }}
+        run: >-
+          python -m ingest.run --workers 32 $([ "$FETCH_HRRR" = true ] || echo --no-hrrr)
+          $([ "$FETCH_AVY" = true ] || echo --no-avalanche)
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

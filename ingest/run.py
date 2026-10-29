@@ -3,8 +3,9 @@
     python -m ingest.run [--out site/data] [--hours N] [--no-hrrr] [--no-compare] [--no-longrange] [--no-avalanche]
 
 The Weather tab's data (HRRR and the Outlook's longrange.json, everything but avy/) is only downloaded when asked
-for. With --no-hrrr the last build, saved in cache/weather/, is reused and only the avalanche data is rebuilt;
-the first build with no saved copy fetches it anyway.
+for. With --no-hrrr the last build, saved in cache/weather/, is reused; the first build with no saved copy fetches
+it anyway. The avalanche data (avy/) works the same way: with --no-avalanche the last avalanche build, saved in
+cache/avy-saved/, is reused.
 
 Output (all static files, served as-is by any web server / GitHub Pages):
   meta.json                 run info, time axis, field catalog, places
@@ -37,6 +38,7 @@ log = logging.getLogger("run")
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "cache"
 SAVED = CACHE / "weather"   # the last HRRR + Outlook build (Weather tab), reused by --no-hrrr builds
+SAVED_AVY = CACHE / "avy-saved"   # the last avalanche build, reused by --no-avalanche builds
 MISSING = -32768
 
 CMP_SCALE = {"T2": 0.01, "WS10": 0.01, "WD10": 0.1, "GUST": 0.01, "APCP1": 0.01, "WS700": 0.01,
@@ -162,11 +164,7 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24,
                     if (SAVED / "meta.json").exists() else None
         meta["longrange"] = "longrange.json" if (tmp / "longrange.json").exists() else None
         (tmp / "meta.json").write_text(json.dumps(meta, separators=(",", ":")))
-        part = SAVED.with_name(SAVED.name + ".tmp")
-        shutil.rmtree(part, ignore_errors=True)
-        shutil.copytree(tmp, part)
-        shutil.rmtree(SAVED, ignore_errors=True)
-        part.rename(SAVED)
+        save_copy(tmp, SAVED)
     else:
         shutil.copytree(SAVED, tmp)
         meta = json.loads((tmp / "meta.json").read_text())
@@ -176,14 +174,25 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24,
     meta["generated"] = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
     (tmp / "meta.json").write_text(json.dumps(meta, separators=(",", ":")))
 
+    if not do_avalanche and not (SAVED_AVY / "avy.json").exists():
+        log.info("no saved avalanche data yet; building it this once")
+        do_avalanche = True
     if do_avalanche:
         from . import avalanche
         try:
             avalanche.build(tmp / "avy", workers=min(workers, 16))
+            save_copy(tmp / "avy", SAVED_AVY)
         except Exception as e:  # noqa
             log.exception("avalanche build failed: %s", e)
-            if (out_dir / "avy").exists():
-                shutil.copytree(out_dir / "avy", tmp / "avy")
+            do_avalanche = False
+    if not do_avalanche and (SAVED_AVY / "avy.json").exists():
+        shutil.rmtree(tmp / "avy", ignore_errors=True)
+        shutil.copytree(SAVED_AVY, tmp / "avy")
+        log.info("reusing the avalanche data built %s (fetched only on request)",
+                 json.loads((SAVED_AVY / "avy.json").read_text())["meta"]["generated"])
+    elif not do_avalanche and (out_dir / "avy").exists():
+        shutil.rmtree(tmp / "avy", ignore_errors=True)
+        shutil.copytree(out_dir / "avy", tmp / "avy")
 
     old = out_dir.parent / (out_dir.name + ".old")
     shutil.rmtree(old, ignore_errors=True)
@@ -194,6 +203,15 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24,
     cache_prune()
     log.info("done in %.0fs: %d times, %d map fields, grid %dx%d -> %s", time.time() - t_start, len(meta["times"]),
              len(meta["map_fields"]), meta["grid"]["ny"], meta["grid"]["nx"], out_dir)
+
+
+def save_copy(src, dst):
+    """Replace dst with a copy of src, without leaving a half-written dst behind."""
+    part = dst.with_name(dst.name + ".tmp")
+    shutil.rmtree(part, ignore_errors=True)
+    shutil.copytree(src, part)
+    shutil.rmtree(dst, ignore_errors=True)
+    part.rename(dst)
 
 
 def build_hrrr(tmp, max_hours, do_compare, workers, do_sub):
@@ -415,7 +433,8 @@ def main():
     ap.add_argument("--no-compare", action="store_true")
     ap.add_argument("--no-longrange", action="store_true")
     ap.add_argument("--no-sub", action="store_true", help="skip the 15-minute dawn/dusk data")
-    ap.add_argument("--no-avalanche", action="store_true")
+    ap.add_argument("--no-avalanche", action="store_true",
+                    help="reuse the last avalanche build instead of fetching HRRR history, ratings and SNOTEL")
     ap.add_argument("--workers", type=int, default=24)
     a = ap.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")

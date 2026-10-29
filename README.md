@@ -103,8 +103,8 @@ cd ~/Documents/wasatch-wx
 ./serve.sh             # open http://localhost:8080
 ```
 
-`./update.sh --loop` rebuilds every hour at :55. Add `--no-hrrr` to reuse the last HRRR and Outlook data and only
-refresh the Avalanche data.
+`./update.sh --loop` rebuilds every hour at :55. Add `--no-hrrr` to reuse the last HRRR and Outlook data, and
+`--no-avalanche` to reuse the last avalanche data.
 
 **iPhone on the same Wi-Fi:** `serve.sh` prints an address like `http://192.168.1.20:8080`. Open it in Safari.
 Offline caching only works over HTTPS, so for a home-screen app that works anywhere, use GitHub Pages
@@ -118,26 +118,30 @@ Offline caching only works over HTTPS, so for a home-screen app that works anywh
 
 1. Create a **public** GitHub repository and push this folder (`git init && git add . && git commit -m init`, then
    `git remote add origin …` and `git push -u origin main`). GitHub Pages is only free for public repositories.
-   Public repositories also get unlimited Actions minutes; the hourly job uses about 5–10 min.
+   Public repositories also get unlimited Actions minutes; a fetch uses about 5–15 min and the hourly redeploy about 1 min.
 2. In the repository, go to **Settings → Pages → Build and deployment** and set Source to **GitHub Actions**.
 3. Optional: **Settings → Secrets and variables → Actions → New repository secret** named `ANTHROPIC_API_KEY`.
-4. Under **Actions → Update forecast → Run workflow**, start the first build. After that the Avalanche data
-   refreshes every hour, and HRRR and the Outlook for the Weather tab are fetched when you ask (see below).
+4. Under **Actions → Update forecast → Run workflow**, start the first build. After that HRRR and the Outlook for
+   the Weather tab, and the Avalanche data, are fetched when you ask for them (see below).
 5. On the iPhone, open `https://<you>.github.io/<repo>/` in Safari, tap **Share → Add to Home Screen**.
 
 ## Keeping it up to date
 
-GitHub refreshes the Avalanche data every hour at :55 (scheduled runs can start 5–20 minutes late when GitHub is
-busy). The Weather tab's HRRR and Outlook data is **only fetched when you ask for it**: those hourly runs reuse the
-last download, and the header shows which HRRR run you have and when it was fetched. The Outlook is rebuilt
-together with HRRR because it picks up where the HRRR window ends. The very first build, when nothing is saved
-yet, fetches both anyway.
+The Weather tab's HRRR and Outlook data and the Avalanche tab's data are **only fetched when you ask for them**.
+The hourly runs at :55 only redeploy the last downloads. The Weather header shows which HRRR run you have and when
+it was fetched, and the Avalanche tab shows when its data was fetched. The Outlook is rebuilt together with HRRR
+because it picks up where the HRRR window ends. The very first build, when nothing is saved yet, fetches
+everything anyway.
+
+To fetch new avalanche data (HRRR snow history, avalanche center ratings and SNOTEL), press **↻** on the
+Avalanche tab, or run the workflow with *Fetch avalanche data* ticked. It usually appears in 10–15 minutes, and
+an open Avalanche tab loads it on its own.
 
 To fetch the newest HRRR and Outlook, press **↻** in the app, or run **Actions → Update forecast → Run workflow** with *Fetch
 HRRR* ticked. New data usually appears in 5–10 minutes. An open copy of the app checks every 5 minutes, and
 again whenever you switch back to it; it loads the new data in place and keeps your point, layer and time.
 
-The **↻** button needs a token in **Settings**:
+Both **↻** buttons need a token in **Settings**:
 1. Create a fine-grained token with *Only select repositories → weather* and *Actions: Read and write* (nothing
    else).
 2. Paste it into Settings on each device where you want the button.
@@ -154,8 +158,8 @@ ingest/      Python data pipeline (python -m ingest.run)
   compare.py   NAM/RAP download and the confidence score
   longrange.py Open-Meteo multi-model + ensembles, front detection, NWS AFD, summary
   subhourly.py 15-minute HRRR surface data for the sunrise/sunset windows
-  run.py       orchestration and static-file output (--no-hrrr reuses the last HRRR build, --no-avalanche skips
-               the avalanche build)
+  run.py       orchestration and static-file output (--no-hrrr reuses the last HRRR build, --no-avalanche reuses
+               the last avalanche build)
   avalanche.py avalanche danger: HRRR history, SNOTEL, avalanche.org zones, scoring (python -m ingest.avalanche)
   avy_ranges.py  range crest lines and their avalanche center zones
   avy_static.npz mountain cells (zoom-6 Web Mercator grid), elevation bands, nearest HRRR point
