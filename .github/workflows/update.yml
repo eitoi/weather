@@ -1,15 +1,15 @@
-# Publishes the app to GitHub Pages. Every hour it refreshes the Outlook and Avalanche data; the Weather tab's
-# HRRR data is only downloaded when asked for (the app's ↻ button, or "Run workflow" with "Fetch HRRR" ticked).
+# Publishes the app to GitHub Pages. Every hour it refreshes the Avalanche data; the Weather tab's HRRR and
+# Outlook data is only downloaded when asked for (the app's ↻ button, or "Run workflow" with "Fetch HRRR" ticked).
 # Setup: Settings -> Pages -> Source: "GitHub Actions". Optional secret ANTHROPIC_API_KEY for the written outlook.
 name: Update forecast
 
 on:
   schedule:
-    - cron: "55 * * * *"      # outlook + avalanche; reuses the last HRRR build for the Weather tab
+    - cron: "55 * * * *"      # avalanche only; reuses the last HRRR + Outlook build
   workflow_dispatch:
     inputs:
       hrrr:
-        description: Fetch HRRR for the Weather tab
+        description: Fetch HRRR and the Outlook for the Weather tab
         type: boolean
         default: true
   push:                       # deploy app changes as soon as they're pushed
