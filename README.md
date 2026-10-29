@@ -146,7 +146,14 @@ The avalanche history (`history/avy.db`) is updated once a day at 15:20 UTC and 
 catches up any gap on its own. Old SNOTEL years and past seasons' center forecasts are backfilled a slice at a
 time, so the full archive builds up over the first few days. To look inside it: download `avy.db.gz` from the
 `avy-history` release, unzip it to `history/avy.db`, and run `python -m ingest.avy_history status`, or query
-the `snotel_daily_v`, `hrrr_track_v` and `snotel_vs_hrrr` views with any SQLite tool.
+the `snotel_daily_v`, `hrrr_track_v` and `snotel_vs_hrrr` views with any SQLite tool. SNOTEL fills from 2022 first
+(the seasons with saved center forecasts), then each station's older years.
+
+Each daily update and avalanche fetch also scores the weak-layer model against the centers (`ingest/avy_verify.py`,
+table `verify_day`): for every forecast day in every center zone, did the center list a persistent slab problem, and
+did the model flag one? Past seasons since 2022 use a SNOTEL-only version of the model (each zone's stations), this
+season also the full HRRR version. The daily run prints the scores in its log, and the Avalanche tab shows them under
+"How the estimate works" and per range. Run *Update forecast* with *Update the avalanche history* ticked to do it now.
 
 To fetch the newest HRRR and Outlook, press **↻** in the app, or run **Actions → Update forecast → Run workflow** with *Fetch
 HRRR* ticked. New data usually appears in 5–10 minutes. An open copy of the app checks every 5 minutes, and
@@ -174,6 +181,7 @@ ingest/      Python data pipeline (python -m ingest.run)
   avalanche.py avalanche danger: HRRR history, SNOTEL, avalanche.org zones, scoring (python -m ingest.avalanche)
   avy_history.py the season record in history/avy.db: SNOTEL history, HRRR per range/band/station, center problems
   avy_layers.py  weak-layer ledger: buried persistent layers per range, band and aspect; agreement with centers
+  avy_verify.py  scores the ledger against the centers' persistent slab problems, past seasons (SNOTEL) and this one
   avy_ranges.py  range crest lines and their avalanche center zones
   avy_static.npz mountain cells (zoom-6 Web Mercator grid), elevation bands, nearest HRRR point
 tools/make_avy_static.py  one-off: rebuilds avy_static.npz and site/img/avy-grid.png from DEM tiles
