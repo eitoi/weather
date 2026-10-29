@@ -647,9 +647,8 @@
       const m = await r.json();
       if (m.generated === WX.meta.generated) return false;
       if ((m.hrrr_generated || m.generated) === WX.hv()) {
-        // only the hourly outlook/avalanche refresh: keep the HRRR data that's loaded, pick up the new outlook
-        WX.meta.generated = m.generated; WX.meta.longrange = m.longrange;
-        WX.loadLongrange(m);
+        // only the hourly avalanche refresh: the HRRR and Outlook data that's loaded is still the newest
+        WX.meta.generated = m.generated;
         return false;
       }
       // keep what you're looking at: same valid time, point and view
@@ -680,10 +679,10 @@
   let pending = null;  // polling for the build this device started
   document.getElementById('updateBtn').onclick = async () => {
     if (await checkForUpdate()) return;
-    if (pending) { toast('Already fetching the newest HRRR. It usually appears in 5–10 minutes.'); return; }
+    if (pending) { toast('Already fetching the newest HRRR and Outlook. It usually appears in 5–10 minutes.'); return; }
     const repo = repoGuess();
     if (!WX.prefs.ghToken || !repo) {
-      toast('HRRR is only fetched when you ask for it. To fetch it from here, add a GitHub token in Settings.', 8000);
+      toast('HRRR and the Outlook are only fetched when you ask for them. To fetch it from here, add a GitHub token in Settings.', 8000);
       return;
     }
     try {
@@ -692,7 +691,7 @@
         body: JSON.stringify({ ref: 'main', inputs: { hrrr: true } }),
       });
       if (r.status === 204) {
-        toast('Fetching the newest HRRR. It usually appears in 5–10 minutes; the app will load it automatically.', 8000);
+        toast('Fetching the newest HRRR and Outlook. It usually appears in 5–10 minutes; the app will load it automatically.', 8000);
         let n = 0;
         pending = setInterval(async () => {
           n++;

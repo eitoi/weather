@@ -2,10 +2,10 @@
 
     python -m ingest.run [--out site/data] [--hours N] [--no-hrrr] [--no-compare] [--no-longrange] [--no-avalanche]
 
-The Weather tab's HRRR data (everything but longrange.json and avy/) is only downloaded when asked for. With
---no-hrrr the last HRRR build, saved in cache/weather/, is reused and only the outlook and avalanche data are
-rebuilt; the first build with no saved copy fetches HRRR anyway. The avalanche data (avy/) works the same way:
-with --no-avalanche the last avalanche build, saved in cache/avy-saved/, is reused.
+The Weather tab's data (HRRR and the Outlook's longrange.json, everything but avy/) is only downloaded when asked
+for. With --no-hrrr the last build, saved in cache/weather/, is reused; the first build with no saved copy fetches
+it anyway. The avalanche data (avy/) works the same way: with --no-avalanche the last avalanche build, saved in
+cache/avy-saved/, is reused.
 
 Output (all static files, served as-is by any web server / GitHub Pages):
   meta.json                 run info, time axis, field catalog, places
@@ -37,7 +37,7 @@ from . import subhourly as SUB
 log = logging.getLogger("run")
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "cache"
-SAVED = CACHE / "weather"   # the last HRRR build (Weather tab), reused by --no-hrrr builds
+SAVED = CACHE / "weather"   # the last HRRR + Outlook build (Weather tab), reused by --no-hrrr builds
 SAVED_AVY = CACHE / "avy-saved"   # the last avalanche build, reused by --no-avalanche builds
 MISSING = -32768
 
@@ -145,30 +145,34 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24,
     if not do_hrrr and not (SAVED / "meta.json").exists():
         log.info("no saved HRRR data yet; fetching HRRR this once")
         do_hrrr = True
+    if not do_hrrr and do_longrange and "outlook_generated" not in json.loads((SAVED / "meta.json").read_text()):
+        log.info("the saved build predates the on-request Outlook; fetching HRRR and the Outlook this once")
+        do_hrrr = True
     if do_hrrr:
         meta = build_hrrr(tmp, max_hours, do_compare, workers, do_sub)
+        if do_longrange:  # the Outlook starts where HRRR ends, so it is refreshed with it
+            from . import longrange
+            try:
+                lr = longrange.build(dt.datetime.fromisoformat(meta["times"][-1].rstrip("Z")))
+                (tmp / "longrange.json").write_text(json.dumps(lr, separators=(",", ":"), default=str))
+                meta["outlook_generated"] = meta["hrrr_generated"]
+            except Exception as e:  # noqa
+                log.exception("long-range build failed: %s", e)
+                if (SAVED / "longrange.json").exists():
+                    shutil.copy(SAVED / "longrange.json", tmp / "longrange.json")
+                meta["outlook_generated"] = json.loads((SAVED / "meta.json").read_text()).get("outlook_generated") \
+                    if (SAVED / "meta.json").exists() else None
+        meta["longrange"] = "longrange.json" if (tmp / "longrange.json").exists() else None
+        (tmp / "meta.json").write_text(json.dumps(meta, separators=(",", ":")))
         save_copy(tmp, SAVED)
     else:
         shutil.copytree(SAVED, tmp)
         meta = json.loads((tmp / "meta.json").read_text())
-        log.info("reusing the HRRR %s run built %s (HRRR is fetched only on request)", meta["run"],
-                 meta.get("hrrr_generated", meta["generated"]))
+        log.info("reusing the HRRR %s run built %s and the Outlook built %s (both are fetched only on request)",
+                 meta["run"], meta.get("hrrr_generated"), meta.get("outlook_generated"))
 
     meta["generated"] = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
-    meta["longrange"] = "longrange.json" if do_longrange else None
     (tmp / "meta.json").write_text(json.dumps(meta, separators=(",", ":")))
-    lr_end = dt.datetime.fromisoformat(meta["times"][-1].rstrip("Z"))
-
-    if do_longrange:
-        from . import longrange
-        try:
-            lr = longrange.build(lr_end)
-            (tmp / "longrange.json").write_text(json.dumps(lr, separators=(",", ":"), default=str))
-        except Exception as e:  # noqa
-            log.exception("long-range build failed: %s", e)
-            old = out_dir / "longrange.json"
-            if old.exists():
-                shutil.copy(old, tmp / "longrange.json")
 
     if not do_avalanche and not (SAVED_AVY / "avy.json").exists():
         log.info("no saved avalanche data yet; building it this once")
@@ -425,7 +429,7 @@ def main():
     ap.add_argument("--out", default=str(ROOT / "site" / "data"))
     ap.add_argument("--hours", type=int, default=48)
     ap.add_argument("--no-hrrr", action="store_true",
-                    help="reuse the last HRRR build and only refresh the outlook and avalanche data")
+                    help="reuse the last HRRR and Outlook build and only refresh the avalanche data")
     ap.add_argument("--no-compare", action="store_true")
     ap.add_argument("--no-longrange", action="store_true")
     ap.add_argument("--no-sub", action="store_true", help="skip the 15-minute dawn/dusk data")
