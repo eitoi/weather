@@ -74,8 +74,9 @@ CREATE TABLE IF NOT EXISTS hrrr_station (valid INTEGER, sid INTEGER, asnow INTEG
   td2 INTEGER, tsk INTEGER, w10 INTEGER, w80 INTEGER, tcdc INTEGER, dswrf INTEGER, dlwrf INTEGER, snod INTEGER,
   PRIMARY KEY (valid, sid)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS hrrr_done (valid INTEGER PRIMARY KEY, cycle TEXT, fetched TEXT);
-CREATE TABLE IF NOT EXISTS center_forecast (id INTEGER PRIMARY KEY, center TEXT, zone_id INTEGER, zone TEXT,
-  day TEXT, published TEXT, expires TEXT, rating INTEGER, lower INTEGER, middle INTEGER, upper INTEGER);
+CREATE TABLE IF NOT EXISTS center_forecast (id INTEGER, center TEXT, zone_id INTEGER, zone TEXT,
+  day TEXT, published TEXT, expires TEXT, rating INTEGER, lower INTEGER, middle INTEGER, upper INTEGER,
+  PRIMARY KEY (id, zone_id)) WITHOUT ROWID;
 CREATE INDEX IF NOT EXISTS center_forecast_day ON center_forecast (center, zone, day);
 CREATE TABLE IF NOT EXISTS center_problem (forecast_id INTEGER, rank INTEGER, problem_id INTEGER, name TEXT,
   likelihood TEXT, size_min REAL, size_max REAL, location TEXT, PRIMARY KEY (forecast_id, rank)) WITHOUT ROWID;
@@ -102,6 +103,9 @@ CREATE VIEW IF NOT EXISTS snotel_vs_hrrr AS SELECT s.triplet, s.name, date(h.val
 def connect(path=DB):
     path.parent.mkdir(parents=True, exist_ok=True)
     db = sqlite3.connect(path, timeout=60)
+    cols = [r[1] for r in db.execute("PRAGMA table_info(center_forecast)") if r[5]]
+    if cols == ["id"]:  # files from before forecasts were stored per zone: refetch them
+        db.executescript("DROP TABLE center_forecast; DROP TABLE IF EXISTS center_month; DELETE FROM center_problem;")
     db.executescript(SCHEMA)
     if "back" not in [r[1] for r in db.execute("PRAGMA table_info(snotel_station)")]:  # files from before back existed
         db.execute("ALTER TABLE snotel_station ADD COLUMN back TEXT")
@@ -350,12 +354,12 @@ def _snotel_slices(db, sid, triplet, begin, end):
     return n
 
 
-def update_snotel(db, budget_end):
+def update_snotel(db, budget_end, phases=("recent", "full"), refresh=True):
     """The last 30 days for every active station (values get revised); then, within the budget, every station from
     RECENT_FROM (the seasons the center forecasts cover) to today; then each station's older years back to its start."""
-    n = update_stations(db)
+    n = update_stations(db) if refresh else 0
     today = dt.date.today()
-    recent = db.execute("SELECT sid, triplet FROM snotel_station WHERE active = 1 AND through IS NOT NULL").fetchall()
+    recent = db.execute("SELECT sid, triplet FROM snotel_station WHERE active = 1 AND through IS NOT NULL").fetchall() if refresh else []
     begin = (today - dt.timedelta(days=30)).isoformat()
     got = 0
     for b in range(0, len(recent), 50):
@@ -363,7 +367,7 @@ def update_snotel(db, budget_end):
         db.executemany("UPDATE snotel_station SET through = ? WHERE sid = ?", [(today.isoformat(), r[0]) for r in recent[b:b + 50]])
         db.commit()
     stats = {"recent": 0, "full": 0}
-    for phase in ("recent", "full"):
+    for phase in phases:
         if phase == "recent":
             todo = db.execute("SELECT sid, triplet, max(begin, ?) FROM snotel_station WHERE through IS NULL ORDER BY active DESC, sid",
                               (RECENT_FROM,)).fetchall()
@@ -433,15 +437,15 @@ def _get(path, params=None):
 
 
 def _save_product(db, p):
-    z = (p.get("forecast_zone") or [{}])[0]
     pub = p.get("published_time") or p.get("start_date")
     if not pub:
         return
     day = (dt.datetime.fromisoformat(pub.replace("Z", "+00:00")) + dt.timedelta(hours=6)).date().isoformat()
     cur = next((d for d in p.get("danger") or [] if d.get("valid_day") == "current"), {})
-    db.execute("INSERT OR REPLACE INTO center_forecast VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-               (p["id"], (p.get("avalanche_center") or {}).get("id"), z.get("id"), z.get("name"), day, pub,
-                p.get("expires_time"), p.get("danger_rating"), cur.get("lower"), cur.get("middle"), cur.get("upper")))
+    for z in p.get("forecast_zone") or [{}]:  # one product can cover several zones (CAIC does this)
+        db.execute("INSERT OR REPLACE INTO center_forecast VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                   (p["id"], (p.get("avalanche_center") or {}).get("id"), z.get("id"), z.get("name"), day, pub,
+                    p.get("expires_time"), p.get("danger_rating"), cur.get("lower"), cur.get("middle"), cur.get("upper")))
     db.execute("DELETE FROM center_problem WHERE forecast_id = ?", (p["id"],))
     for q in p.get("forecast_avalanche_problems") or []:
         size = [float(x) for x in (q.get("size") or []) if str(x).replace(".", "", 1).isdigit()]
@@ -453,8 +457,8 @@ def _save_product(db, p):
 def _center_month(db, center, month):
     """List one center's forecasts for one month and fetch the ones not saved yet. Returns products fetched."""
     first = dt.date.fromisoformat(month + "-01")
-    last = min((first + dt.timedelta(days=32)).replace(day=1) - dt.timedelta(days=1), dt.date.today())
-    items = _get("products", {"avalanche_center_id": center, "date_start": first.isoformat(), "date_end": last.isoformat()})
+    end = min((first + dt.timedelta(days=32)).replace(day=1), dt.date.today() + dt.timedelta(days=1))
+    items = _get("products", {"avalanche_center_id": center, "date_start": first.isoformat(), "date_end": end.isoformat()})  # end is exclusive
     have = {r[0] for r in db.execute("SELECT id FROM center_forecast WHERE center = ?", (center,))}
     ids = [it["id"] for it in items if it.get("product_type") == "forecast" and it.get("id") not in have]
     with ThreadPoolExecutor(6) as ex:  # a few at a time, to stay polite to avalanche.org
@@ -523,9 +527,10 @@ def update(st=None, budget=600, workers=16, centers=None, parts=("snotel", "hrrr
         st["dem"] = st["dem"].astype(np.float32)
         st["hhgt"] = st["hhgt"].astype(np.float32)
     db = connect()
+    # budget: SNOTEL since 2022 first, then past center seasons, then SNOTEL's older years with whatever is left
     if "snotel" in parts:
         try:
-            update_snotel(db, end)
+            update_snotel(db, t0 + budget * 0.4, phases=("recent",))
         except Exception as e:  # noqa
             log.warning("SNOTEL update failed: %s", e)
     if "hrrr" in parts:
@@ -535,9 +540,14 @@ def update(st=None, budget=600, workers=16, centers=None, parts=("snotel", "hrrr
             from .avy_ranges import CENTERS
             centers = list(CENTERS)
         try:
-            update_centers(db, centers, end)
+            update_centers(db, centers, max(end - budget * 0.25, time.time() + 60))
         except Exception as e:  # noqa
             log.warning("center update failed: %s", e)
+    if "snotel" in parts:
+        try:
+            update_snotel(db, end, phases=("full",), refresh=False)
+        except Exception as e:  # noqa
+            log.warning("SNOTEL backfill failed: %s", e)
     db.execute("INSERT OR REPLACE INTO meta VALUES ('updated', ?)", (dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",))
     db.commit()
     log.info("history updated in %.0fs", time.time() - t0)
