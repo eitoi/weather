@@ -214,6 +214,7 @@ table.data tr.q15.sel td, table.data tr.sel td { background: color-mix(in srgb, 
 #avyBar .seg button { font-size: 12px; }
 #avyLegend { left: 10px; bottom: calc(10px + var(--safe-bottom)); padding: 8px 10px; font-size: 11px; color: var(--text-secondary); }
 #avyLegend .lg-title { font-weight: 600; color: var(--text-primary); margin-bottom: 4px; font-size: 12px; }
+#avyLegend .lg-gap { margin-top: 8px; }
 .avy-lg { display: flex; align-items: center; gap: 6px; line-height: 1.6; }
 .avy-lg i { width: 14px; height: 10px; border-radius: 2px; display: inline-block; border: 1px solid #0003; }
 .avy-lg i.dash { border: 1.5px dashed var(--text-secondary); background: transparent; }
@@ -236,6 +237,9 @@ table.data tr.q15.sel td, table.data tr.sel td { background: color-mix(in srgb, 
 .avy-list i { width: 12px; height: 12px; border-radius: 3px; flex: none; border: 1px solid #0003; }
 .avy-list .nm { flex: 1; min-width: 0; }
 .avy-off { color: var(--accent); font-weight: 600; }
+.avy-src { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 8px; }
+.avy-src span { display: inline-flex; align-items: center; gap: 6px; }
+.avy-src i { width: 14px; height: 10px; border-radius: 2px; border: 1px solid #0003; }
 @media (max-width: 760px) {
   #avyBar { left: 8px; right: 8px; top: 8px; max-width: none; padding: 6px; }
   #avyBar .seg { width: 100%; } #avyBar .seg button { flex: 1; padding: 4px 4px; }
