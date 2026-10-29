@@ -676,6 +676,7 @@
     if (location.hostname.endsWith('.github.io')) return location.hostname.split('.')[0] + '/' + location.pathname.split('/')[1];
     return '';
   }
+  WX.repoGuess = repoGuess;
   let pending = null;  // polling for the build this device started
   document.getElementById('updateBtn').onclick = async () => {
     if (await checkForUpdate()) return;

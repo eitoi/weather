@@ -42,20 +42,29 @@
 
   let loading = null;
   function init() {
-    if (!loading) loading = load().catch(e => { console.error(e); $('avyBody').innerHTML = '<p class="muted">Avalanche data is not available yet. It is built with the hourly forecast (see README).</p>'; });
+    if (!loading) loading = load().catch(e => { console.error(e); $('avyBody').innerHTML = '<p class="muted">Avalanche data is not available yet. It is fetched on request (see README).</p>'; });
     return loading;
   }
 
-  async function load() {
-    const r = await fetch('data/avy/avy.json', { cache: 'no-cache' });
+  async function fetchData() {
+    const r = await fetch('data/avy/avy.json?t=' + Date.now(), { cache: 'no-store' });
     if (!r.ok) throw new Error('avy.json ' + r.status);
-    D = await r.json();
+    return r.json();
+  }
+
+  function setData(d) {
+    D = d; byId = {};
     D.ranges.forEach(x => {
       byId[x.id] = x;
       const z = zoneOf(x);
       x.isOfficial = !!(z && z.level >= 1);
       x.top = x.isOfficial ? z.level : Math.max(0, ...x.bands.filter(b => b !== null));
     });
+    if (sel) sel = byId[sel.id] || null;
+  }
+
+  async function load() {
+    setData(await fetchData());
     const g = D.meta.grid, n = 256 * 2 ** g.z;
     const lon = x => x / n * 360 - 180, lat = y => Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
     const bounds = L.latLngBounds([lat(g.gy + g.H), lon(g.gx)], [lat(g.gy), lon(g.gx + g.W)]);
@@ -64,22 +73,7 @@
     L.control.zoom({ position: 'bottomright' }).addTo(map);
     setBase();
     raster = L.imageOverlay('data:image/gif;base64,R0lGODlhAQABAAAAACw=', bounds, { opacity: 0.72, interactive: false }).addTo(map);
-    zoneLayer = L.layerGroup();
-    D.zones.forEach((z, zi) => z.polys.forEach(p => {
-      const rated = z.level >= 1;
-      L.polygon(p.map(ring => ring.map(([x, y]) => [y, x])), {
-        color: rated ? '#222' : '#555', weight: rated ? 1.2 : 1, dashArray: rated ? null : '4 4',
-        fillColor: rated ? HEX[z.level] : '#000', fillOpacity: rated ? 0.45 : 0, interactive: true, bubblingMouseEvents: true,
-      }).bindTooltip(`${esc(z.center)} · ${esc(z.name)}<br>${rated ? NAMES[z.level] : 'No rating'}`, { sticky: true }).addTo(zoneLayer);
-    }));
-    snoLayer = L.layerGroup();
-    const sc = WX.scales.rampScale('blue', 0, 250);
-    D.stations.forEach(s => {
-      L.circleMarker([s.lat, s.lon], { radius: 4.5, weight: 1, color: '#123', fillColor: WX.rgb(sc.color(s.hs)), fillOpacity: 0.95 })
-        .bindPopup(() => stationHtml(s)).addTo(snoLayer);
-    });
-    if (prefs.zones) zoneLayer.addTo(map);
-    if (prefs.snotel) snoLayer.addTo(map);
+    layers();
 
     canvas = document.createElement('canvas'); canvas.width = g.W; canvas.height = g.H;
     const img = new Image();
@@ -113,8 +107,70 @@
     $('avyZones').onchange = e => { prefs.zones = e.target.checked; save(); e.target.checked ? zoneLayer.addTo(map) : map.removeLayer(zoneLayer); };
     $('avySno').onchange = e => { prefs.snotel = e.target.checked; save(); e.target.checked ? snoLayer.addTo(map) : map.removeLayer(snoLayer); };
     $('avyGrip').onclick = () => $('avyPanel').classList.toggle('full');
+    $('avyUpdate').onclick = update;
     legend();
     select(null);
+    age(); setInterval(age, 60e3);
+  }
+
+  /* ---------------------------------------------------------------- new data, fetched only on request */
+  function age() {
+    const m = Math.round((Date.now() - new Date(D.meta.generated)) / 60000);
+    $('avyAge').textContent = 'Fetched ' + (m < 90 ? `${m} min ago` : m < 48 * 60 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`);
+  }
+  async function newer() {
+    const d = await fetchData().catch(() => null);
+    if (!d || d.meta.generated === D.meta.generated) return false;
+    setData(d); layers(); render(); detail(); list(); age();
+    WX.toast('Loaded the new avalanche data.');
+    return true;
+  }
+  let pending = null;  // polling for the build this device started
+  async function update() {
+    if (await newer()) return;
+    if (pending) { WX.toast('Already fetching new avalanche data. It usually appears in 10–15 minutes.'); return; }
+    const repo = WX.repoGuess();
+    if (!WX.prefs.ghToken || !repo) {
+      WX.toast('Avalanche data is only fetched when you ask for it. To fetch it from here, add a GitHub token in Settings.', 8000);
+      return;
+    }
+    try {
+      const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/update.yml/dispatches`, {
+        method: 'POST', headers: { Authorization: 'Bearer ' + WX.prefs.ghToken, Accept: 'application/vnd.github+json' },
+        body: JSON.stringify({ ref: 'main', inputs: { hrrr: false, avalanche: true } }),
+      });
+      if (r.status === 204) {
+        WX.toast('Fetching new HRRR history, center ratings and SNOTEL. It usually appears in 10–15 minutes; the map will update on its own.', 8000);
+        let n = 0;
+        pending = setInterval(async () => {
+          n++;
+          if (await newer() || n > 30) { clearInterval(pending); pending = null; }
+        }, 60e3);
+      } else if (r.status === 401 || r.status === 403 || r.status === 404) {
+        WX.toast(`GitHub refused the request (${r.status}). Check the token has Actions: Read and write on ${esc(repo)}.`, 9000);
+      } else WX.toast(`Couldn't start the avalanche fetch (GitHub ${r.status}).`);
+    } catch (e) { WX.toast('Couldn\'t reach GitHub.'); }
+  }
+
+  // center zones and SNOTEL markers, rebuilt whenever new data loads
+  function layers() {
+    [zoneLayer, snoLayer].forEach(l => l && map.removeLayer(l));
+    zoneLayer = L.layerGroup();
+    D.zones.forEach((z, zi) => z.polys.forEach(p => {
+      const rated = z.level >= 1;
+      L.polygon(p.map(ring => ring.map(([x, y]) => [y, x])), {
+        color: rated ? '#222' : '#555', weight: rated ? 1.2 : 1, dashArray: rated ? null : '4 4',
+        fillColor: rated ? HEX[z.level] : '#000', fillOpacity: rated ? 0.45 : 0, interactive: true, bubblingMouseEvents: true,
+      }).bindTooltip(`${esc(z.center)} · ${esc(z.name)}<br>${rated ? NAMES[z.level] : 'No rating'}`, { sticky: true }).addTo(zoneLayer);
+    }));
+    snoLayer = L.layerGroup();
+    const sc = WX.scales.rampScale('blue', 0, 250);
+    D.stations.forEach(s => {
+      L.circleMarker([s.lat, s.lon], { radius: 4.5, weight: 1, color: '#123', fillColor: WX.rgb(sc.color(s.hs)), fillOpacity: 0.95 })
+        .bindPopup(() => stationHtml(s)).addTo(snoLayer);
+    });
+    if (prefs.zones) zoneLayer.addTo(map);
+    if (prefs.snotel) snoLayer.addTo(map);
   }
 
   function setBase() {
