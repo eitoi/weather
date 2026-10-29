@@ -1,6 +1,6 @@
 /* Service worker: app shell cache-first, forecast data network-first with offline fallback. */
-const SHELL = 'wx-shell-v15', DATA = 'wx-data-v1', TILES = 'wx-tiles-v1';
-const SHELL_FILES = ['./', 'index.html', 'style.css?v=15', 'js/util.js?v=15', 'js/charts.js?v=15', 'js/point.js?v=15', 'js/outlook.js?v=15', 'js/launches.js?v=15', 'launches.json', 'js/app.js?v=15', 'js/avalanche.js?v=15', 'js/agent.js?v=15', 'img/avy-grid.png?v=1',
+const SHELL = 'wx-shell-v16', DATA = 'wx-data-v1', TILES = 'wx-tiles-v1';
+const SHELL_FILES = ['./', 'index.html', 'style.css?v=16', 'js/auth.js?v=16', 'js/util.js?v=16', 'js/charts.js?v=16', 'js/point.js?v=16', 'js/outlook.js?v=16', 'js/launches.js?v=16', 'launches.json', 'js/app.js?v=16', 'js/avalanche.js?v=16', 'js/agent.js?v=16', 'img/avy-grid.png?v=1',
   'manifest.webmanifest', 'icons/icon-192.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
@@ -13,7 +13,7 @@ self.addEventListener('activate', e => {
 
 self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
-  if (e.request.method !== 'GET') return;
+  if (e.request.method !== 'GET' || url.pathname.endsWith('/auth.json')) return;   // the login check always goes to the network
   if (url.origin === location.origin && url.pathname.includes('/data/')) {
     // network first; keep the latest copy for offline use (keyed without the ?v= cache-buster)
     const key = url.origin + url.pathname;
