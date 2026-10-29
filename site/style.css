@@ -229,6 +229,9 @@ table.data tr.q15.sel td, table.data tr.sel td { background: color-mix(in srgb, 
 .avy-bands { display: grid; gap: 6px; }
 .avy-band { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--surface-2); border-radius: 8px; padding: 6px 10px; font-size: 13px; }
 .avy-why { margin: 0; padding-left: 18px; }
+.avy-strip-row { display: grid; grid-template-columns: 44px 1fr; align-items: center; gap: 6px; margin-top: 3px; }
+.avy-strip { display: grid; gap: 1px; height: 12px; }
+.avy-strip i { display: block; border-radius: 1px; min-width: 0; }
 .avy-back { padding: 0 10px; font-size: 13px; }
 .avy-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
 .avy-chips button { border: 1px solid var(--border); background: var(--surface-1); color: var(--text-secondary); border-radius: 999px; padding: 2px 9px; font-size: 12px; cursor: pointer; }

@@ -50,8 +50,12 @@ five-level North American scale for each range and elevation band (above, near a
 "minimal snow" where there is not enough snow to matter. When an avalanche center has issued a rating, the
 map shows the official rating and links to the forecast. Everywhere else it shows an estimate scored from
 HRRR new snow (past 7 days and next 24 hours), wind loading, rain on snow, warming and snow depth, pulled
-toward SNOTEL measurements where stations exist. The estimate is a rough guide, not a forecast. Tap a range
-for its bands, the reasons behind the rating, the model weather and nearby SNOTEL stations.
+toward SNOTEL measurements where stations exist. On top of that, a season-long weak-layer record watches every
+range, band and aspect for the weather that grows facets, depth hoar and surface hoar, notes each layer when snow
+buries it and follows its depth and loading, and raises the estimate where a persistent slab problem is likely.
+The estimate is a rough guide, not a forecast. Tap a range for its bands, the reasons behind the rating, its
+buried weak layers, the center's own avalanche problems, how often the estimate agreed with the center this
+season, the model weather and nearby SNOTEL stations.
 
 **Agent**: a chat with your WeatherAgent (the Claude agent that answers forecasting questions from live HRRR,
 NWS observations, your Ecowitt station, the SLC forecast discussion and two years of station history). The agent
@@ -77,6 +81,7 @@ The site's top tabs are **Weather** (Map and Outlook), **Avalanche** and **Agent
 | Avalanche center ratings and zones | Avalanche | api.avalanche.org map layer (last good copy is reused for up to 48 h) |
 | NRCS SNOTEL snow depth and SWE | Avalanche | AWDB REST API |
 | HRRR 6-hourly snowfall, precip, temperature and 80 m wind for the past 7 days, f00 snow depth | Avalanche | AWS, cached in `cache/avy/` for 9 days |
+| Avalanche history: SNOTEL daily since each station began, HRRR every 6 h since 1 Oct (incl. dew point, skin temperature, cloud, radiation) per range and band and at each SNOTEL station, every avalanche.org forecast with its problems since Oct 2022 | Avalanche | `history/avy.db` (SQLite, see `ingest/avy_history.py`), kept as the `avy-history` release asset |
 
 The time axis starts with the newest complete HRRR run. When that run only reaches 18 h, it continues with
 the newest 48-hour run, so you always get about 48 hours. The label under the slider shows which run and
@@ -137,6 +142,12 @@ To fetch new avalanche data (HRRR snow history, avalanche center ratings and SNO
 Avalanche tab, or run the workflow with *Fetch avalanche data* ticked. It usually appears in 10–15 minutes, and
 an open Avalanche tab loads it on its own.
 
+The avalanche history (`history/avy.db`) is updated once a day at 15:20 UTC and on every avalanche fetch, and
+catches up any gap on its own. Old SNOTEL years and past seasons' center forecasts are backfilled a slice at a
+time, so the full archive builds up over the first few days. To look inside it: download `avy.db.gz` from the
+`avy-history` release, unzip it to `history/avy.db`, and run `python -m ingest.avy_history status`, or query
+the `snotel_daily_v`, `hrrr_track_v` and `snotel_vs_hrrr` views with any SQLite tool.
+
 To fetch the newest HRRR and Outlook, press **↻** in the app, or run **Actions → Update forecast → Run workflow** with *Fetch
 HRRR* ticked. New data usually appears in 5–10 minutes. An open copy of the app checks every 5 minutes, and
 again whenever you switch back to it; it loads the new data in place and keeps your point, layer and time.
@@ -161,6 +172,8 @@ ingest/      Python data pipeline (python -m ingest.run)
   run.py       orchestration and static-file output (--no-hrrr reuses the last HRRR build, --no-avalanche reuses
                the last avalanche build)
   avalanche.py avalanche danger: HRRR history, SNOTEL, avalanche.org zones, scoring (python -m ingest.avalanche)
+  avy_history.py the season record in history/avy.db: SNOTEL history, HRRR per range/band/station, center problems
+  avy_layers.py  weak-layer ledger: buried persistent layers per range, band and aspect; agreement with centers
   avy_ranges.py  range crest lines and their avalanche center zones
   avy_static.npz mountain cells (zoom-6 Web Mercator grid), elevation bands, nearest HRRR point
 tools/make_avy_static.py  one-off: rebuilds avy_static.npz and site/img/avy-grid.png from DEM tiles
