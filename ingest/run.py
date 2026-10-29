@@ -1,6 +1,10 @@
 """Build the static forecast dataset for the web app.
 
-    python -m ingest.run [--out site/data] [--hours N] [--no-compare] [--no-longrange] [--no-avalanche]
+    python -m ingest.run [--out site/data] [--hours N] [--no-hrrr] [--no-compare] [--no-longrange] [--no-avalanche]
+
+The Weather tab's HRRR data (everything but longrange.json and avy/) is only downloaded when asked for. With
+--no-hrrr the last HRRR build, saved in cache/weather/, is reused and only the outlook and avalanche data are
+rebuilt; the first build with no saved copy fetches HRRR anyway.
 
 Output (all static files, served as-is by any web server / GitHub Pages):
   meta.json                 run info, time axis, field catalog, places
@@ -32,6 +36,7 @@ from . import subhourly as SUB
 log = logging.getLogger("run")
 ROOT = Path(__file__).resolve().parent.parent
 CACHE = ROOT / "cache"
+SAVED = CACHE / "weather"   # the last HRRR build (Weather tab), reused by --no-hrrr builds
 MISSING = -32768
 
 CMP_SCALE = {"T2": 0.01, "WS10": 0.01, "WD10": 0.1, "GUST": 0.01, "APCP1": 0.01, "WS700": 0.01,
@@ -128,8 +133,67 @@ def ensure_crop(crop, run):
 
 # ---------------------------------------------------------------- main build
 
-def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24, do_sub=True, do_avalanche=True):
+def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24, do_sub=True, do_avalanche=True,
+          do_hrrr=True):
     t_start = time.time()
+    out_dir = Path(out_dir)
+    tmp = out_dir.parent / (out_dir.name + ".tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+
+    if not do_hrrr and not (SAVED / "meta.json").exists():
+        log.info("no saved HRRR data yet; fetching HRRR this once")
+        do_hrrr = True
+    if do_hrrr:
+        meta = build_hrrr(tmp, max_hours, do_compare, workers, do_sub)
+        part = SAVED.with_name(SAVED.name + ".tmp")
+        shutil.rmtree(part, ignore_errors=True)
+        shutil.copytree(tmp, part)
+        shutil.rmtree(SAVED, ignore_errors=True)
+        part.rename(SAVED)
+    else:
+        shutil.copytree(SAVED, tmp)
+        meta = json.loads((tmp / "meta.json").read_text())
+        log.info("reusing the HRRR %s run built %s (HRRR is fetched only on request)", meta["run"],
+                 meta.get("hrrr_generated", meta["generated"]))
+
+    meta["generated"] = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    meta["longrange"] = "longrange.json" if do_longrange else None
+    (tmp / "meta.json").write_text(json.dumps(meta, separators=(",", ":")))
+    lr_end = dt.datetime.fromisoformat(meta["times"][-1].rstrip("Z"))
+
+    if do_longrange:
+        from . import longrange
+        try:
+            lr = longrange.build(lr_end)
+            (tmp / "longrange.json").write_text(json.dumps(lr, separators=(",", ":"), default=str))
+        except Exception as e:  # noqa
+            log.exception("long-range build failed: %s", e)
+            old = out_dir / "longrange.json"
+            if old.exists():
+                shutil.copy(old, tmp / "longrange.json")
+
+    if do_avalanche:
+        from . import avalanche
+        try:
+            avalanche.build(tmp / "avy", workers=min(workers, 16))
+        except Exception as e:  # noqa
+            log.exception("avalanche build failed: %s", e)
+            if (out_dir / "avy").exists():
+                shutil.copytree(out_dir / "avy", tmp / "avy")
+
+    old = out_dir.parent / (out_dir.name + ".old")
+    shutil.rmtree(old, ignore_errors=True)
+    if out_dir.exists():
+        out_dir.rename(old)
+    tmp.rename(out_dir)
+    shutil.rmtree(old, ignore_errors=True)
+    cache_prune()
+    log.info("done in %.0fs: %d times, %d map fields, grid %dx%d -> %s", time.time() - t_start, len(meta["times"]),
+             len(meta["map_fields"]), meta["grid"]["ny"], meta["grid"]["nx"], out_dir)
+
+
+def build_hrrr(tmp, max_hours, do_compare, workers, do_sub):
+    """Download HRRR (and the comparison models) and write the Weather tab's files into tmp. Returns meta."""
     R, S = H.latest_runs()
     log.info("newest HRRR run %s, newest 48-h run %s", R, S)
     crop = H.Crop()
@@ -290,9 +354,6 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24,
             sub_meta, sub_arrays = None, {}
 
     # ---- write (into a temp dir, then swap)
-    out_dir = Path(out_dir)
-    tmp = out_dir.parent / (out_dir.name + ".tmp")
-    shutil.rmtree(tmp, ignore_errors=True)
     (tmp / "maps").mkdir(parents=True)
     (tmp / "pts").mkdir()
 
@@ -322,9 +383,9 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24,
             for i in range(nx):
                 np.ascontiguousarray(sst[:, :, j, i]).tofile(tmp / "subpts" / f"{j}_{i}.bin")
 
-    lr_end = times[-1]
+    now = dt.datetime.utcnow().isoformat(timespec="seconds") + "Z"
     meta = {
-        "generated": dt.datetime.utcnow().isoformat(timespec="seconds") + "Z",
+        "generated": now, "hrrr_generated": now,
         "run": R.isoformat() + "Z", "ext_run": (S.isoformat() + "Z") if S else None,
         "times": [t.isoformat() + "Z" for t in times],
         "sources": [{"run": r.isoformat() + "Z", "fh": fh} for _t, r, fh in axis],
@@ -333,46 +394,20 @@ def build(out_dir, max_hours=48, do_compare=True, do_longrange=True, workers=24,
         "levels": LEVELS, "upper_vars": UPPER_VARS,
         "fields": catalog, "map_fields": map_keys, "point_fields": point_keys,
         "places": PLACES, "comparators": cmp_info,
-        "longrange": "longrange.json" if do_longrange else None,
+        "longrange": None,
         "sub": sub_meta if sub_meta and sub_meta["times"] else None,
     }
     (tmp / "meta.json").write_text(json.dumps(meta, separators=(",", ":")))
-
-    if do_longrange:
-        from . import longrange
-        try:
-            lr = longrange.build(lr_end)
-            (tmp / "longrange.json").write_text(json.dumps(lr, separators=(",", ":"), default=str))
-        except Exception as e:  # noqa
-            log.exception("long-range build failed: %s", e)
-            old = out_dir / "longrange.json"
-            if old.exists():
-                shutil.copy(old, tmp / "longrange.json")
-
-    if do_avalanche:
-        from . import avalanche
-        try:
-            avalanche.build(tmp / "avy", workers=min(workers, 16))
-        except Exception as e:  # noqa
-            log.exception("avalanche build failed: %s", e)
-            if (out_dir / "avy").exists():
-                shutil.copytree(out_dir / "avy", tmp / "avy")
-
-    old = out_dir.parent / (out_dir.name + ".old")
-    shutil.rmtree(old, ignore_errors=True)
-    if out_dir.exists():
-        out_dir.rename(old)
-    tmp.rename(out_dir)
-    shutil.rmtree(old, ignore_errors=True)
-    cache_prune()
-    log.info("done in %.0fs: %d times, %d map fields, grid %dx%d -> %s", time.time() - t_start, T, len(map_keys),
-             ny, nx, out_dir)
+    log.info("HRRR %s: %d times, %d map fields, grid %dx%d", R, T, len(map_keys), ny, nx)
+    return meta
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=str(ROOT / "site" / "data"))
     ap.add_argument("--hours", type=int, default=48)
+    ap.add_argument("--no-hrrr", action="store_true",
+                    help="reuse the last HRRR build and only refresh the outlook and avalanche data")
     ap.add_argument("--no-compare", action="store_true")
     ap.add_argument("--no-longrange", action="store_true")
     ap.add_argument("--no-sub", action="store_true", help="skip the 15-minute dawn/dusk data")
@@ -382,7 +417,8 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
     logging.getLogger("httpx").setLevel(logging.WARNING)
     load_env()
-    build(a.out, a.hours, not a.no_compare, not a.no_longrange, a.workers, not a.no_sub, not a.no_avalanche)
+    build(a.out, a.hours, not a.no_compare, not a.no_longrange, a.workers, not a.no_sub, not a.no_avalanche,
+          not a.no_hrrr)
 
 
 if __name__ == "__main__":

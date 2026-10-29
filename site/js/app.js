@@ -623,10 +623,10 @@
 
   function runInfo() {
     const m = WX.meta, run = new Date(m.run);
-    const age = Math.round((Date.now() - new Date(m.generated)) / 60000);
+    const age = Math.round((Date.now() - new Date(m.hrrr_generated || m.generated)) / 60000);
     const ageS = age < 90 ? `${age} min ago` : `${Math.round(age / 60)} h ago`;
     document.getElementById('runInfo').innerHTML =
-      `HRRR ${String(run.getUTCHours()).padStart(2, '0')}Z ${WX.time.day(run)} · updated ${ageS}`;
+      `HRRR ${String(run.getUTCHours()).padStart(2, '0')}Z ${WX.time.day(run)} · fetched ${ageS}`;
   }
 
   /* ---------------------------------------------------------------- new data while the app is open */
@@ -638,14 +638,20 @@
   }
   WX.toast = toast;
   let checking = false;
-  async function checkForUpdate(manual) {
+  async function checkForUpdate() {
     if (checking || !WX.meta) return false;
     checking = true;
     try {
       const r = await fetch('data/meta.json?t=' + Date.now(), { cache: 'no-store' });
       if (!r.ok) return false;
       const m = await r.json();
-      if (m.generated === WX.meta.generated) { if (manual) toast('Already the newest forecast (HRRR ' + new Date(m.run).getUTCHours() + 'Z).'); return false; }
+      if (m.generated === WX.meta.generated) return false;
+      if ((m.hrrr_generated || m.generated) === WX.hv()) {
+        // only the hourly outlook/avalanche refresh: keep the HRRR data that's loaded, pick up the new outlook
+        WX.meta.generated = m.generated; WX.meta.longrange = m.longrange;
+        WX.loadLongrange(m);
+        return false;
+      }
       // keep what you're looking at: same valid time, point and view
       const keepT = +WX.times[WX.t], keepS = WX.subTimes[WX.ts] ? +WX.subTimes[WX.ts] : null, pt = WX.point, mode = WX.mode;
       await WX.load();
@@ -670,24 +676,30 @@
     if (location.hostname.endsWith('.github.io')) return location.hostname.split('.')[0] + '/' + location.pathname.split('/')[1];
     return '';
   }
+  let pending = null;  // polling for the build this device started
   document.getElementById('updateBtn').onclick = async () => {
-    if (await checkForUpdate(false)) return;
+    if (await checkForUpdate()) return;
+    if (pending) { toast('Already fetching the newest HRRR. It usually appears in 5–10 minutes.'); return; }
     const repo = repoGuess();
     if (!WX.prefs.ghToken || !repo) {
-      toast('The forecast rebuilds automatically every hour (~:55). To start a build from here, add a GitHub token in Settings.', 8000);
+      toast('HRRR is only fetched when you ask for it. To fetch it from here, add a GitHub token in Settings.', 8000);
       return;
     }
     try {
       const r = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/update.yml/dispatches`, {
         method: 'POST', headers: { Authorization: 'Bearer ' + WX.prefs.ghToken, Accept: 'application/vnd.github+json' },
-        body: JSON.stringify({ ref: 'main' }),
+        body: JSON.stringify({ ref: 'main', inputs: { hrrr: true } }),
       });
       if (r.status === 204) {
-        toast('Update started. New data usually appears in 5–10 minutes; the app will load it automatically.', 8000);
-        let n = 0; const iv = setInterval(async () => { n++; if (await checkForUpdate() || n > 20) clearInterval(iv); }, 60e3);
+        toast('Fetching the newest HRRR. It usually appears in 5–10 minutes; the app will load it automatically.', 8000);
+        let n = 0;
+        pending = setInterval(async () => {
+          n++;
+          if (await checkForUpdate() || n > 25) { clearInterval(pending); pending = null; }
+        }, 60e3);
       } else if (r.status === 401 || r.status === 403 || r.status === 404) {
         toast(`GitHub refused the request (${r.status}). Check the token has Actions: Read and write on ${WX.esc(repo)}.`, 9000);
-      } else toast(`Couldn't start the update (GitHub ${r.status}).`);
+      } else toast(`Couldn't start the HRRR fetch (GitHub ${r.status}).`);
     } catch (e) { toast('Couldn\'t reach GitHub.'); }
   };
 

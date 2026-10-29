@@ -30,11 +30,19 @@ async function fetchBin(path) {
   return r.arrayBuffer();
 }
 
+/* HRRR files only change when HRRR is fetched (on request); the outlook and avalanche data change hourly. */
+WX.hv = () => WX.meta.hrrr_generated || WX.meta.generated;
+WX.loadLongrange = function (meta) {
+  if (!meta.longrange) return;
+  fetch(DATA + meta.longrange + '?v=' + encodeURIComponent(meta.generated)).then(r => r.ok ? r.json() : null)
+    .then(j => { WX.lr = j; WX.emit('longrange'); }).catch(() => {});
+};
+
 WX.load = async function () {
   const r = await fetch(DATA + 'meta.json', { cache: 'no-cache' });
   if (!r.ok) throw new Error('meta.json ' + r.status);
   const meta = await r.json();
-  const buf = await fetchBin('grid.bin?v=' + encodeURIComponent(meta.generated));
+  const buf = await fetchBin('grid.bin?v=' + encodeURIComponent(meta.hrrr_generated || meta.generated));
   const f = new Float32Array(buf), n = meta.grid.ny * meta.grid.nx;
   WX.meta = meta;
   WX.times = meta.times.map(s => new Date(s));
@@ -42,17 +50,14 @@ WX.load = async function () {
   WX.fidx = Object.fromEntries(meta.point_fields.map((k, i) => [k, i]));
   WX.maps.clear(); WX.pts.clear(); WX.subMaps.clear(); WX.subPts.clear();
   WX.subTimes = meta.sub ? meta.sub.times.map(x => new Date(x)) : [];
-  if (meta.longrange) {
-    fetch(DATA + meta.longrange + '?v=' + encodeURIComponent(meta.generated)).then(r => r.ok ? r.json() : null)
-      .then(j => { WX.lr = j; WX.emit('longrange'); }).catch(() => {});
-  }
+  WX.loadLongrange(meta);
   return meta;
 };
 
 /* Map field: Float32Array [T][ny][nx] with NaN for missing. */
 WX.getMap = function (key) {
   if (WX.maps.has(key)) return WX.maps.get(key);
-  const p = fetchBin('maps/' + key.replace(':', '_') + '.bin?v=' + encodeURIComponent(WX.meta.generated)).then(buf => {
+  const p = fetchBin('maps/' + key.replace(':', '_') + '.bin?v=' + encodeURIComponent(WX.hv())).then(buf => {
     const raw = new Int16Array(buf), s = WX.meta.fields[key].scale, out = new Float32Array(raw.length);
     for (let i = 0; i < raw.length; i++) out[i] = raw[i] === -32768 ? NaN : raw[i] * s;
     return out;
@@ -72,7 +77,7 @@ WX.subMaps = new Map(); WX.subPts = new Map();
 WX.getSubMap = function (key) {
   if (WX.subMaps.has(key)) return WX.subMaps.get(key);
   const f = WX.meta.sub.fields[key];
-  const p = f ? fetchBin('sub/' + key + '.bin?v=' + encodeURIComponent(WX.meta.generated)).then(b => decode(b, f.scale))
+  const p = f ? fetchBin('sub/' + key + '.bin?v=' + encodeURIComponent(WX.hv())).then(b => decode(b, f.scale))
     : Promise.reject(new Error('no 15-min ' + key));
   WX.subMaps.set(key, p); p.catch(() => WX.subMaps.delete(key));
   return p;
@@ -81,7 +86,7 @@ WX.getSubPoint = function (j, i) {
   const id = j + '_' + i;
   if (WX.subPts.has(id)) return WX.subPts.get(id);
   const sub = WX.meta.sub;
-  const p = fetchBin('subpts/' + id + '.bin?v=' + encodeURIComponent(WX.meta.generated)).then(buf => {
+  const p = fetchBin('subpts/' + id + '.bin?v=' + encodeURIComponent(WX.hv())).then(buf => {
     const raw = new Int16Array(buf), S = sub.times.length, cache = {};
     return {
       get(key) {
@@ -103,7 +108,7 @@ WX.getSubPoint = function (j, i) {
 WX.getPoint = function (j, i) {
   const id = j + '_' + i;
   if (WX.pts.has(id)) return WX.pts.get(id);
-  const p = fetchBin('pts/' + id + '.bin?v=' + encodeURIComponent(WX.meta.generated)).then(buf => {
+  const p = fetchBin('pts/' + id + '.bin?v=' + encodeURIComponent(WX.hv())).then(buf => {
     const raw = new Int16Array(buf), T = WX.times.length, fields = WX.meta.point_fields, cache = {};
     return {
       get(key) {

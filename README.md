@@ -102,7 +102,8 @@ cd ~/Documents/wasatch-wx
 ./serve.sh             # open http://localhost:8080
 ```
 
-`./update.sh --loop` rebuilds every hour at :55.
+`./update.sh --loop` rebuilds every hour at :55. Add `--no-hrrr` to reuse the last HRRR data and only refresh the
+Outlook and Avalanche data.
 
 **iPhone on the same Wi-Fi:** `serve.sh` prints an address like `http://192.168.1.20:8080`. Open it in Safari.
 Offline caching only works over HTTPS, so for a home-screen app that works anywhere, use GitHub Pages
@@ -119,17 +120,22 @@ Offline caching only works over HTTPS, so for a home-screen app that works anywh
    Public repositories also get unlimited Actions minutes; the hourly job uses about 5–10 min.
 2. In the repository, go to **Settings → Pages → Build and deployment** and set Source to **GitHub Actions**.
 3. Optional: **Settings → Secrets and variables → Actions → New repository secret** named `ANTHROPIC_API_KEY`.
-4. Under **Actions → Update forecast → Run workflow**, start the first build. After that it runs every hour.
+4. Under **Actions → Update forecast → Run workflow**, start the first build. After that the Outlook and Avalanche
+   data refresh every hour, and HRRR for the Weather map is fetched when you ask for it (see below).
 5. On the iPhone, open `https://<you>.github.io/<repo>/` in Safari, tap **Share → Add to Home Screen**.
 
 ## Keeping it up to date
 
-You don't have to run anything. GitHub rebuilds the forecast every hour at :55, and scheduled runs can start
-5–20 minutes late when GitHub is busy. An open copy of the app checks for new data every 5 minutes, and again
-whenever you switch back to it. When a new run is available, it loads it in place and keeps your point, layer
-and time.
+GitHub refreshes the Outlook and Avalanche data every hour at :55 (scheduled runs can start 5–20 minutes late
+when GitHub is busy). The Weather map's HRRR data is **only fetched when you ask for it**: those hourly runs reuse
+the last HRRR download, and the header shows which run you have and when it was fetched. The very first build,
+when there is no saved HRRR yet, fetches it anyway.
 
-The **↻** button checks for new data right away. To make it *start* a build, add a token in **Settings**:
+To fetch the newest HRRR, press **↻** in the app, or run **Actions → Update forecast → Run workflow** with *Fetch
+HRRR* ticked. New data usually appears in 5–10 minutes. An open copy of the app checks every 5 minutes, and
+again whenever you switch back to it; it loads new HRRR in place and keeps your point, layer and time.
+
+The **↻** button needs a token in **Settings**:
 1. Create a fine-grained token with *Only select repositories → weather* and *Actions: Read and write* (nothing
    else).
 2. Paste it into Settings on each device where you want the button.
@@ -146,7 +152,8 @@ ingest/      Python data pipeline (python -m ingest.run)
   compare.py   NAM/RAP download and the confidence score
   longrange.py Open-Meteo multi-model + ensembles, front detection, NWS AFD, summary
   subhourly.py 15-minute HRRR surface data for the sunrise/sunset windows
-  run.py       orchestration and static-file output (--no-avalanche skips the avalanche build)
+  run.py       orchestration and static-file output (--no-hrrr reuses the last HRRR build, --no-avalanche skips
+               the avalanche build)
   avalanche.py avalanche danger: HRRR history, SNOTEL, avalanche.org zones, scoring (python -m ingest.avalanche)
   avy_ranges.py  range crest lines and their avalanche center zones
   avy_static.npz mountain cells (zoom-6 Web Mercator grid), elevation bands, nearest HRRR point
