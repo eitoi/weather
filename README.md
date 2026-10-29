@@ -103,8 +103,8 @@ cd ~/Documents/wasatch-wx
 ./serve.sh             # open http://localhost:8080
 ```
 
-`./update.sh --loop` rebuilds every hour at :55. Add `--no-hrrr` to reuse the last HRRR data and only refresh the
-Outlook and Avalanche data.
+`./update.sh --loop` rebuilds every hour at :55. Add `--no-hrrr` to reuse the last HRRR and Outlook data and only
+refresh the Avalanche data.
 
 **iPhone on the same Wi-Fi:** `serve.sh` prints an address like `http://192.168.1.20:8080`. Open it in Safari.
 Offline caching only works over HTTPS, so for a home-screen app that works anywhere, use GitHub Pages
@@ -121,20 +121,21 @@ Offline caching only works over HTTPS, so for a home-screen app that works anywh
    Public repositories also get unlimited Actions minutes; the hourly job uses about 5–10 min.
 2. In the repository, go to **Settings → Pages → Build and deployment** and set Source to **GitHub Actions**.
 3. Optional: **Settings → Secrets and variables → Actions → New repository secret** named `ANTHROPIC_API_KEY`.
-4. Under **Actions → Update forecast → Run workflow**, start the first build. After that the Outlook and Avalanche
-   data refresh every hour, and HRRR for the Weather map is fetched when you ask for it (see below).
+4. Under **Actions → Update forecast → Run workflow**, start the first build. After that the Avalanche data
+   refreshes every hour, and HRRR and the Outlook for the Weather tab are fetched when you ask (see below).
 5. On the iPhone, open `https://<you>.github.io/<repo>/` in Safari, tap **Share → Add to Home Screen**.
 
 ## Keeping it up to date
 
-GitHub refreshes the Outlook and Avalanche data every hour at :55 (scheduled runs can start 5–20 minutes late
-when GitHub is busy). The Weather map's HRRR data is **only fetched when you ask for it**: those hourly runs reuse
-the last HRRR download, and the header shows which run you have and when it was fetched. The very first build,
-when there is no saved HRRR yet, fetches it anyway.
+GitHub refreshes the Avalanche data every hour at :55 (scheduled runs can start 5–20 minutes late when GitHub is
+busy). The Weather tab's HRRR and Outlook data is **only fetched when you ask for it**: those hourly runs reuse the
+last download, and the header shows which HRRR run you have and when it was fetched. The Outlook is rebuilt
+together with HRRR because it picks up where the HRRR window ends. The very first build, when nothing is saved
+yet, fetches both anyway.
 
-To fetch the newest HRRR, press **↻** in the app, or run **Actions → Update forecast → Run workflow** with *Fetch
+To fetch the newest HRRR and Outlook, press **↻** in the app, or run **Actions → Update forecast → Run workflow** with *Fetch
 HRRR* ticked. New data usually appears in 5–10 minutes. An open copy of the app checks every 5 minutes, and
-again whenever you switch back to it; it loads new HRRR in place and keeps your point, layer and time.
+again whenever you switch back to it; it loads the new data in place and keeps your point, layer and time.
 
 The **↻** button needs a token in **Settings**:
 1. Create a fine-grained token with *Only select repositories → weather* and *Actions: Read and write* (nothing
