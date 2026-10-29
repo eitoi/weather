@@ -57,6 +57,7 @@ for its bands, the reasons behind the rating, the model weather and nearby SNOTE
 NWS observations, your Ecowitt station, the SLC forecast discussion and two years of station history). The agent
 itself, its API key and its database stay on your Mac. Start its web server from the WeatherAgent folder with
 `.venv/bin/python web.py` (or double-click `Agent Web.command`); the tab talks to it at `http://localhost:8787`.
+The tab's **Server commands** panel lists the start and stop commands with Copy buttons.
 From another device, put the Mac behind an HTTPS tunnel (for example `tailscale serve 8787`) and paste that
 address in **Settings → Agent address**, then add the site's address to `web_origins` in the agent's
 `config.json` if it isn't `https://eitoi.github.io`.

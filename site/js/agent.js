@@ -40,9 +40,8 @@
   }
 
   function help() {
-    return `<div class="agent-help"><p><b>The agent isn't reachable at ${esc(url())}.</b> It runs on your Mac, so start it there:</p>
-      <p>Double-click <code>Agent Web.command</code> in your WeatherAgent folder, or run
-      <code>.venv/bin/python web.py</code> there.</p>
+    return `<div class="agent-help"><p><b>The agent isn't reachable at ${esc(url())}.</b> It runs on your Mac, so start it there
+      with a command from <b>Server commands</b> above, or double-click <code>Agent Web.command</code> in your WeatherAgent folder.</p>
       <p class="small">Then press <b>Check again</b>. To use it from another device, put the Mac behind an HTTPS tunnel
       (for example <code>tailscale serve 8787</code>) and paste that address under ⚙︎ Settings → Agent address.</p>
       <button class="agent-btn" type="button" id="agentRetry">Check again</button></div>`;
@@ -67,6 +66,14 @@
   }
 
   log.addEventListener('click', e => { if (e.target.id === 'agentRetry') check(); });
+
+  $('agentCmds').addEventListener('click', async e => {
+    const b = e.target.closest('.agent-cmd button');
+    if (!b) return;
+    try { await navigator.clipboard.writeText(b.previousElementSibling.textContent); b.textContent = 'Copied'; }
+    catch (err) { b.textContent = 'Select and copy'; }
+    setTimeout(() => { b.textContent = 'Copy'; }, 1500);
+  });
 
   async function ask(q) {
     busy = true; send.disabled = true;

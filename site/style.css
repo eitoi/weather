@@ -252,6 +252,14 @@ table.data tr.q15.sel td, table.data tr.sel td { background: color-mix(in srgb, 
 .agent { flex: 1; display: flex; flex-direction: column; max-width: 860px; margin: 0 auto; width: 100%; min-height: 0;
   padding: 10px 16px calc(10px + var(--safe-bottom)); box-sizing: border-box; }
 .agent-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-bottom: 8px; }
+.agent-cmds { font-size: 13px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 12px; padding: 8px 12px; margin-bottom: 8px; }
+.agent-cmds summary { cursor: pointer; color: var(--text-secondary); }
+.agent-cmds p { margin: 8px 0; }
+.agent-cmds code { background: var(--surface-2); padding: 1px 5px; border-radius: 5px; font-size: 12px; }
+.agent-cmd { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+.agent-cmd span { flex: 0 0 120px; color: var(--text-secondary); }
+.agent-cmd code { flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap; padding: 5px 8px; }
+@media (max-width: 600px) { .agent-cmd { flex-wrap: wrap; } .agent-cmd span { flex-basis: 100%; } }
 .agent-log { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding: 4px 0 10px; }
 .agent-msg { border-radius: 12px; padding: 10px 12px; max-width: 92%; line-height: 1.5; overflow-wrap: anywhere; }
 .agent-msg.you { align-self: flex-end; background: var(--accent); color: #fff; white-space: pre-wrap; }
