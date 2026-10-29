@@ -14,7 +14,7 @@
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
 <div id="app">
@@ -99,6 +99,14 @@
         <div><b>Weather agent</b> <span id="agentStatus" class="muted small">checking…</span></div>
         <button id="agentNew" class="agent-btn" type="button">New chat</button>
       </div>
+      <details id="agentCmds" class="agent-cmds">
+        <summary>Server commands</summary>
+        <p class="small muted">Run these in Terminal on your Mac. Or double-click <code>Agent Web.command</code> in the WeatherAgent folder.</p>
+        <div class="agent-cmd"><span>Start</span><code>cd ~/weather/WeatherAgent &amp;&amp; .venv/bin/python web.py</code><button class="agent-btn" type="button">Copy</button></div>
+        <div class="agent-cmd"><span>Start in background</span><code>cd ~/weather/WeatherAgent &amp;&amp; nohup .venv/bin/python web.py &gt;&gt; data/web.log 2&gt;&amp;1 &amp;</code><button class="agent-btn" type="button">Copy</button></div>
+        <div class="agent-cmd"><span>Stop</span><code>pkill -f "python.*web\.py"</code><button class="agent-btn" type="button">Copy</button></div>
+        <p class="small muted">Started with the first command, Ctrl-C in that Terminal window also stops it.</p>
+      </details>
       <div id="agentLog" class="agent-log" aria-live="polite"></div>
       <form id="agentForm" class="agent-form">
         <textarea id="agentQ" rows="2" placeholder="Ask about the wind, or tell it what really happened"></textarea>
@@ -151,13 +159,13 @@
   </dialog>
 </div>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="js/util.js?v=12"></script>
-<script src="js/charts.js?v=12"></script>
-<script src="js/point.js?v=12"></script>
-<script src="js/outlook.js?v=12"></script>
-<script src="js/launches.js?v=12"></script>
-<script src="js/app.js?v=12"></script>
-<script src="js/avalanche.js?v=12"></script>
-<script src="js/agent.js?v=12"></script>
+<script src="js/util.js?v=13"></script>
+<script src="js/charts.js?v=13"></script>
+<script src="js/point.js?v=13"></script>
+<script src="js/outlook.js?v=13"></script>
+<script src="js/launches.js?v=13"></script>
+<script src="js/app.js?v=13"></script>
+<script src="js/avalanche.js?v=13"></script>
+<script src="js/agent.js?v=13"></script>
 </body>
 </html>
