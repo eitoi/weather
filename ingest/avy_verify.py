@@ -27,21 +27,28 @@ log = logging.getLogger("avy-verify")
 FIRST_SEASON = H.CENTER_BACKFILL_FROM
 
 SCHEMA = """
-CREATE TABLE IF NOT EXISTS center_zone (center TEXT, zone TEXT, state TEXT, polys TEXT, updated TEXT,
+CREATE TABLE IF NOT EXISTS center_zone (center TEXT, zone TEXT, state TEXT, polys TEXT, updated TEXT, zone_id INTEGER,
   PRIMARY KEY (center, zone)) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS verify_day (source TEXT, center TEXT, zone TEXT, day TEXT, center_ps INTEGER,
   center_danger INTEGER, model_floor INTEGER, PRIMARY KEY (source, center, zone, day)) WITHOUT ROWID;
 """
 
 
+def _schema(db):
+    db.executescript(SCHEMA)
+    if "zone_id" not in [r[1] for r in db.execute("PRAGMA table_info(center_zone)")]:
+        db.execute("ALTER TABLE center_zone ADD COLUMN zone_id INTEGER")
+
+
 def save_zones(db, zones):
     """Keep each center zone's outline so stations can be matched to zones without the live map layer."""
-    db.executescript(SCHEMA)
+    _schema(db)
     now = dt.datetime.utcnow().isoformat(timespec="seconds")
     for z in zones:
         if z.get("center_id") and z.get("name") and z.get("polys"):
-            db.execute("INSERT OR REPLACE INTO center_zone VALUES (?, ?, ?, ?, ?)",
-                       (z["center_id"], z["name"], z.get("state"), json.dumps(z["polys"]), now))
+            zid = z.get("id") if isinstance(z.get("id"), int) else None
+            db.execute("INSERT OR REPLACE INTO center_zone VALUES (?, ?, ?, ?, ?, ?)",
+                       (z["center_id"], z["name"], z.get("state"), json.dumps(z["polys"]), now, zid))
     db.commit()
 
 
@@ -53,7 +60,7 @@ def zone_stations(db):
         return {}
     sid = np.array([s[0] for s in st]); lat = np.array([s[1] for s in st]); lon = np.array([s[2] for s in st])
     out = {}
-    for c, z, polys in db.execute("SELECT center, zone, polys FROM center_zone"):
+    for c, z, polys in db.execute("SELECT center, zone, polys FROM center_zone").fetchall():
         inn = np.zeros(len(sid), bool)
         near = np.zeros(len(sid), bool)
         for poly in json.loads(polys):
@@ -107,11 +114,13 @@ def snotel_inputs(db, sids, d0, d1):
 
 
 def center_days(db, center, zone, d0, d1):
-    """day -> (persistent slab listed?, highest danger that day) for one zone's saved forecasts."""
+    """day -> (persistent slab listed?, highest danger that day) for one zone's saved forecasts (matched by name, or
+    by zone id so renamed zones still count)."""
+    zid = (db.execute("SELECT zone_id FROM center_zone WHERE center = ? AND zone = ?", (center, zone)).fetchone() or [None])[0]
     rows = db.execute("""SELECT f.day, max(coalesce(p.name LIKE '%Persistent%', 0)), max(f.lower, f.middle, f.upper)
                          FROM center_forecast f LEFT JOIN center_problem p ON p.forecast_id = f.id
-                         WHERE f.center = ? AND f.zone = ? AND f.day BETWEEN ? AND ? GROUP BY f.day""",
-                      (center, zone, d0.isoformat(), d1.isoformat())).fetchall()
+                         WHERE f.center = ? AND (f.zone = ? OR f.zone_id = ?) AND f.day BETWEEN ? AND ? GROUP BY f.day""",
+                      (center, zone, zid, d0.isoformat(), d1.isoformat())).fetchall()
     return {d: (int(ps or 0), dg) for d, ps, dg in rows}
 
 
@@ -172,7 +181,7 @@ def score(rows):
 
 def verify_summary(db):
     """{source: {"all": score, "seasons": {...}, "zones": {"CENTER:zone": score}}} from verify_day."""
-    db.executescript(SCHEMA)
+    _schema(db)
     rows = db.execute("SELECT source, center, zone, day, center_ps, center_danger, model_floor FROM verify_day").fetchall()
     out = {}
     for src in sorted({r[0] for r in rows}):
@@ -192,7 +201,7 @@ def verify_summary(db):
 def run(db, today=None, st=None, zones=None, zmap=None, led=None, days=None):
     """Recompute verify_day (SNOTEL for every season; HRRR for this one when its ledger is given)."""
     today = today or dt.datetime.utcnow().date()
-    db.executescript(SCHEMA)
+    _schema(db)
     if zones:
         save_zones(db, zones)
     rows, nz = run_snotel(db, today)
