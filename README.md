@@ -154,6 +154,12 @@ table `verify_day`): for every forecast day in every center zone, did the center
 did the model flag one? Past seasons since 2022 use a SNOTEL-only version of the model (each zone's stations), this
 season also the full HRRR version. The daily run prints the scores in its log, and the Avalanche tab shows them under
 "How the estimate works" and per range. Run *Update forecast* with *Update the avalanche history* ticked to do it now.
+Forecasts that list no problems (UAC's feed) are left out. With the history downloaded,
+`python -m ingest.avy_verify --tune` grid-searches the thresholds in `avy_layers.P` season by season. On Dec 2023
+to May 2026 (10,518 zone-days) the SNOTEL version agrees with the centers on 71% of days, catches 69% of their
+persistent slab days, and 31% of its own flags are days the center did not list (Heidke skill 0.41). Most of that
+skill is telling snowpack climates apart. Within one center it ranges from about 0.4 (Bridger-Teton, Eastern Sierra) to
+none (NWAC, Idaho Panhandle, Flathead), where the timing of the centers' calls is still beyond the SNOTEL-only model.
 
 To fetch the newest HRRR and Outlook, press **↻** in the app, or run **Actions → Update forecast → Run workflow** with *Fetch
 HRRR* ticked. New data usually appears in 5–10 minutes. An open copy of the app checks every 5 minutes, and
