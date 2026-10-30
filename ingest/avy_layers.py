@@ -25,6 +25,11 @@ import numpy as np
 from .avy_history import dayno, season_start, vhour
 
 ASPECTS = ("N", "S")
+# Tunable thresholds; avy_verify scores them against the centers' saved problem lists
+# active_c was fitted to the centers' Dec 2023 to May 2026 problem lists (python -m ingest.avy_verify --tune); thaw_days
+# retires the layers once the pack has been above freezing for that many days running, as the centers do each spring
+P = dict(tg=10.0, bury=0.35, retire=0.25, heal=1.0, active_c=0.6, dormant_c=0.5, dormant_days=999, clear=12.0,
+         thaw_t=0.0, thaw_days=10)
 KIND = {"dh": "Depth hoar", "fc": "Facets", "nsf": "Near-surface facets", "sh": "Surface hoar", "cf": "Facets on a crust"}
 
 
@@ -137,6 +142,7 @@ def ledger(X, i, aspect, band):
     layers, basal = [], None
     spell = None
     hs_dry = 0.0
+    thaw = 0
     asp_f = 1.0 if aspect == "N" else 0.5   # sun warms south slopes, slowing gradient growth and frost
     for d in range(ND):
         if not X["have"][i, d] or not np.isfinite(hs[d]):
@@ -152,7 +158,7 @@ def ledger(X, i, aspect, band):
         if spell is None:
             spell = {"fc": 0.0, "nsf": 0.0, "sh": 0.0, "crust": False, "days": 0}
         tg = max(0.0, -float(X["tskmean"][i, d])) / max(H / 100, 0.1)          # degC per m
-        fdi = float(np.clip((tg - 10) / 15, 0, 1.5))
+        fdi = float(np.clip((tg - P["tg"]) / 15, 0, 1.5))
         dry = swe[d] < 2 and hn[d] < 2
         if dry:
             hs_dry = H
@@ -176,7 +182,7 @@ def ledger(X, i, aspect, band):
                 s, kind = (sh, "sh") if sh >= fc else (fc + (0.3 if spell["crust"] else 0), "cf" if spell["crust"] else "nsf" if spell["nsf"] / 5 > spell["fc"] / 6 else "fc")
                 if kind == "sh" and X["w10mean"][i, d] > 7:
                     s *= 0.5   # wind during the storm tends to destroy surface hoar before it is buried
-                if s >= 0.35:
+                if s >= P["bury"]:
                     layers.append({"kind": kind, "buried": d, "h": hs_dry, "strength": min(s, 1.5), "last_load": d})
                 spell = None
             elif hn[d] < 5:
@@ -187,17 +193,20 @@ def ledger(X, i, aspect, band):
                     spell[k] *= 0.5
         loaded = load3 >= 10 or rain3 >= 5 or (band >= 2 and X["w80mean"][i, d] > 12 and hn3 >= 5)
         t = float(X["t2mean"][i, d])
+        thaw = thaw + 1 if t > P["thaw_t"] else 0
         f = 0
         for L in layers:
             if L.get("retired"):
                 continue
+            if thaw >= P["thaw_days"]:   # days above freezing in a row: the pack goes wet and the layers lose their bite
+                L["retired"] = True; continue
             if not L.get("basal"):
                 L["h"] *= 0.997          # the snow under the layer settles too
             depth = H - L["h"]
             if depth < -2:               # melted down to it
                 L["retired"] = True; continue
-            r = 0.03 if t > -3 else 0.006 if t < -10 else 0.015
-            if tg > 10 and depth < 60:
+            r = P["heal"] * (0.03 if t > -3 else 0.006 if t < -10 else 0.015)
+            if tg > P["tg"] and depth < 60:
                 r = 0.0                  # a strong gradient keeps facets weak
             if rain3 >= 10 and depth < 60:
                 r = 0.1                  # rain soaking into the layer
@@ -206,24 +215,24 @@ def ledger(X, i, aspect, band):
             if L.get("basal"):
                 if H < 120:
                     L["strength"] = min(1.5, L["strength"] + fdi * asp_f / 8)
-            elif depth < 40 and tg > 10:
+            elif depth < 40 and tg > P["tg"]:
                 L["strength"] = min(1.5, L["strength"] + fdi / 30)
             if loaded and d >= L["buried"]:
                 L["last_load"] = d
-            if L["strength"] < 0.25 and not L.get("basal"):
+            if L["strength"] < P["retire"] and not L.get("basal"):
                 L["retired"] = True; continue
             c = _concern(L, depth)
             L["depth"], L["concern"] = depth, c
             since = d - L["last_load"]
             L["state"] = "deep" if depth > 150 else "active" if since <= 10 else "dormant"
             if L["state"] == "active":
-                if c >= 0.35:
+                if c >= P["active_c"]:
                     f = max(f, 2)
                 if since <= 3 and c >= 0.5:
                     f = max(f, 3)
                 if load3 >= 35 and since <= 1 and c >= 0.9:
                     f = max(f, 4)
-            elif c >= 0.5:
+            elif c >= P["dormant_c"] and since <= P["dormant_days"]:
                 f = max(f, 2)
         floor[d] = min(f, 2 if H < 40 else 3 if H < 70 else 5)
     alive = [L for L in layers if not L.get("retired") and L.get("concern", 0) >= 0.2]
@@ -267,14 +276,14 @@ def verify(db, led, days, zones, zmap):
     idx = {d.isoformat(): i for i, d in enumerate(days)}
     for r, zi in zmap.items():
         z = zones[zi]
-        rows = db.execute("""SELECT f.day, max(p.name LIKE '%Persistent%') FROM center_forecast f
+        rows = db.execute("""SELECT f.day, count(p.forecast_id), max(p.name LIKE '%Persistent%') FROM center_forecast f
                              LEFT JOIN center_problem p ON p.forecast_id = f.id
                              WHERE f.center = ? AND f.zone = ? AND f.day >= ? GROUP BY f.day""",
                           (z["center_id"], z["name"], days[0].isoformat())).fetchall()
         t = {"both": 0, "center_only": 0, "model_only": 0, "neither": 0}
-        for day, ps in rows:
+        for day, n, ps in rows:
             i = idx.get(day)
-            if i is None:
+            if i is None or not n:   # no problems listed: nothing to compare
                 continue
             m = max((led[(r, b)]["series"][i] for b in (1, 2, 3) if (r, b) in led), default=0) >= 2
             k = "both" if ps and m else "center_only" if ps else "model_only" if m else "neither"
